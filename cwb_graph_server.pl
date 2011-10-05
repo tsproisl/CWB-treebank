@@ -39,8 +39,6 @@ my %child_processes : shared;
 # don't fear the reaper ;o)
 # avoid zombies
 sub REAPER {
-
-    #1 until ( -1 == waitpid( -1, WNOHANG ) );
     while ( ( my $child_pid = waitpid( -1, WNOHANG ) ) > 0 ) {
         lock(%child_processes);
         delete $child_processes{$child_pid};
