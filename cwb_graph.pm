@@ -18,6 +18,7 @@ sub match_graph {
     ###TODO aus config file einlesen
     my $sentence = $corpus_handle->attribute( "s",    "s" );
     my $s_id     = $corpus_handle->attribute( "s_id", "s" );
+
     #my $s_dbid     = $corpus_handle->attribute( "s_dbid", "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
@@ -46,46 +47,23 @@ sub match_graph {
 
     # match
     foreach my $sid ( keys %{ $ids[$#ids] } ) {
-        my %result;
         my @candidates;
+	my %used_up_positions;
         foreach my $token ( 0 .. $#$query ) {
             $candidates[$token] = [ @{ $ids[ $freq_alignment[$token] ]->{$sid} } ];
         }
         my $token = 0;
-
-        #foreach my $cpos ( @{ $candidates[ $freq_alignment[$token] ] } ) {
-        foreach my $cpos ( @{ $candidates[$token] } ) {
-            my $local_candidates = dclone( \@candidates );
-            $local_candidates->[$token] = [$cpos];
-            my %used_up_positions = ( $cpos => $token );
-            &remove_used_up_positions( $local_candidates, \%used_up_positions );
-            my $rvalue = &match( $query, \%p_attributes, \@freq_alignment, $token, $cpos, $local_candidates, $sid, \%used_up_positions );
-            if ($rvalue) {
-                $result{$token}->{$cpos} = $rvalue;
-            }
-        }
-        if (%result) {
-
-            #print $sid, "\n";
-            #print $s_id->struc2str($sid), "\n";
-            #print $s_id->struc2str($sid) . " ";
-            #print join( "\n", &to_string( \%result ) ), "\n";
+	my $result = &match_recursive( $query, \%p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
+        if (ref($result) eq "HASH") {
             my ( $start, $end ) = $s_id->struc2cpos($sid);
-
-            #my $line = join( " ", $p_attributes{"word"}->cpos2str( $start .. $end ) ) . "\n";
-            #print $line x scalar(&to_string( \%result ));
             if ( $querymode eq "collo-word" ) {
-
-                #print $output encode_json( { "s_id" => $s_id->struc2str($sid), "s_dbid" => $s_dbid->cpos2struc($start), "tokens" => [ &to_string( \%p_attributes, \%result ) ] } ), "\n";
-                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, \%result, "word" ) ] } ), "\n";
+                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } ), "\n";
             }
             elsif ( $querymode eq "collo-lemma" ) {
-                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, \%result, "lemma" ) ] } ), "\n";
+                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "lemma" ) ] } ), "\n";
             }
             elsif ( $querymode eq "sentence" ) {
-
-                #print $output encode_json( { "s_id" => $s_id->struc2str($sid), "s_dbid" => $s_dbid->cpos2struc($start), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( \%p_attributes, \%result, $start ) ] } ), "\n";
-                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( \%p_attributes, \%result, $start ) ] } ), "\n";
+                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( \%p_attributes, $result, $start ) ] } ), "\n";
             }
         }
     }
@@ -97,8 +75,7 @@ sub check_frequencies {
         my $token = $query->[$i]->[$i];
         my $querystring = join( " & ", map( &map_token_restrictions( $_, $token->{$_}, $case_sensitivity ), keys %$token ) );
 
-        # inefficient:
-        #my $querystring = &build_query($query, $i, $case_sensitivity);
+        #my $querystring = &build_query($query, $i, $case_sensitivity); # inefficient
         if ($querystring) {
             $cqp->exec("A = [$querystring]");
             ( $frequencies->{$i} ) = $cqp->exec("size A");
@@ -206,20 +183,7 @@ REL: for ( my $i = 0; $i <= $#rels; $i++ ) {
     }
     if ( $token < $#$query ) {
         $token++;
-
-        #foreach my $cpos ( @{ $candidates->[ $freq_alignment->[$token] ] } ) {
-        foreach my $cpos ( @{ $candidates->[$token] } ) {
-            my $local_candidates        = dclone($candidates);
-            my $local_used_up_positions = dclone($used_up_positions);
-            $local_candidates->[$token] = [$cpos];
-            $local_used_up_positions->{$cpos} = $token;
-            &remove_used_up_positions( $local_candidates, $local_used_up_positions );
-            my $rvalue = &match( $query, $p_attributes, $freq_alignment, $token, $cpos, $local_candidates, $sid, $local_used_up_positions );
-            if ($rvalue) {
-                $result{$token}->{$cpos} = $rvalue;
-            }
-        }
-        return %result ? \%result : undef;
+	return &match_recursive( $query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions );
     }
     else {
         return 1;
@@ -244,7 +208,7 @@ sub remove_used_up_positions {
     for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
         my $foo = $local_candidates->[$i];
         for ( my $j = 0; $j <= $#$foo; $j++ ) {
-            splice( @{ $local_candidates->[$i] }, $j, 1 ) if ( defined($used_up_positions->{ $local_candidates->[$i]->[$j] }) and $i != $used_up_positions->{ $local_candidates->[$i]->[$j] } );
+            splice( @{ $local_candidates->[$i] }, $j, 1 ) if ( defined( $used_up_positions->{ $local_candidates->[$i]->[$j] } ) and $i != $used_up_positions->{ $local_candidates->[$i]->[$j] } );
         }
     }
 }
@@ -292,6 +256,23 @@ sub to_relative_position {
 
 sub ignore_case {
     return ( ( $_[0] eq "word" or $_[0] eq "lemma" ) and not $_[1] ) ? ' %c' : '';
+}
+
+sub match_recursive {
+    my ($query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions) = @_;
+    my %result;
+    foreach my $cpos ( @{ $candidates->[$token] } ) {
+        my $local_candidates        = dclone($candidates);
+        my $local_used_up_positions = dclone($used_up_positions);
+        $local_candidates->[$token] = [$cpos];
+        $local_used_up_positions->{$cpos} = $token;
+        &remove_used_up_positions( $local_candidates, $local_used_up_positions );
+        my $rvalue = &match( $query, $p_attributes, $freq_alignment, $token, $cpos, $local_candidates, $sid, $local_used_up_positions );
+        if ($rvalue) {
+            $result{$token}->{$cpos} = $rvalue;
+        }
+    }
+    return %result ? \%result : undef;
 }
 
 1;
