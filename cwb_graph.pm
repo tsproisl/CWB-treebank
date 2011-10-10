@@ -210,6 +210,11 @@ sub remove_used_up_positions {
     for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
         my $foo = $local_candidates->[$i];
         for ( my $j = 0; $j <= $#$foo; $j++ ) {
+	    # remove corpus position at $local_candidates->[$i]->[$j]
+	    # if the corpus position is in $used_up_positions and the
+	    # node stored there is not the one represented by $i;
+	    # i.e. corpus positions already in use cannot be used for
+	    # another node
             splice( @{ $local_candidates->[$i] }, $j, 1 ) if ( defined( $used_up_positions->{ $local_candidates->[$i]->[$j] } ) and $i != $used_up_positions->{ $local_candidates->[$i]->[$j] } );
         }
     }
