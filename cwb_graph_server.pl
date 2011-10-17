@@ -84,6 +84,7 @@ while ( not $time_to_die ) {
 sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
+    ###TODO: Corpus handles as hash values stored under corpus name
     my ( $cqp, $corpus_handle );
     $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef $cqp; undef $corpus_handle; $socket->close(); exit; };
     my $corpus = "BNC_PARSED";

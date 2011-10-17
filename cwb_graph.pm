@@ -48,13 +48,13 @@ sub match_graph {
     # match
     foreach my $sid ( keys %{ $ids[$#ids] } ) {
         my @candidates;
-	my %used_up_positions;
+        my %used_up_positions;
         foreach my $token ( 0 .. $#$query ) {
             $candidates[$token] = [ @{ $ids[ $freq_alignment[$token] ]->{$sid} } ];
         }
         my $token = 0;
-	my $result = &match_recursive( $query, \%p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
-        if (ref($result) eq "HASH") {
+        my $result = &match_recursive( $query, \%p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
+        if ( ref($result) eq "HASH" ) {
             my ( $start, $end ) = $s_id->struc2cpos($sid);
             if ( $querymode eq "collo-word" ) {
                 print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } ), "\n";
@@ -73,6 +73,8 @@ sub check_frequencies {
     my ( $cqp, $query, $frequencies, $case_sensitivity ) = @_;
     for ( my $i = 0; $i <= $#$query; $i++ ) {
         my $token = $query->[$i]->[$i];
+
+        # Note: Try out adding indeps and outdeps information
         my $querystring = join( " & ", map( &map_token_restrictions( $_, $token->{$_}, $case_sensitivity ), keys %$token ) );
 
         #my $querystring = &build_query($query, $i, $case_sensitivity); # inefficient
@@ -183,7 +185,7 @@ REL: for ( my $i = 0; $i <= $#rels; $i++ ) {
     }
     if ( $token < $#$query ) {
         $token++;
-	return &match_recursive( $query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions );
+        return &match_recursive( $query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions );
     }
     else {
         return 1;
@@ -208,6 +210,11 @@ sub remove_used_up_positions {
     for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
         my $foo = $local_candidates->[$i];
         for ( my $j = 0; $j <= $#$foo; $j++ ) {
+	    # remove corpus position at $local_candidates->[$i]->[$j]
+	    # if the corpus position is in $used_up_positions and the
+	    # node stored there is not the one represented by $i;
+	    # i.e. corpus positions already in use cannot be used for
+	    # another node
             splice( @{ $local_candidates->[$i] }, $j, 1 ) if ( defined( $used_up_positions->{ $local_candidates->[$i]->[$j] } ) and $i != $used_up_positions->{ $local_candidates->[$i]->[$j] } );
         }
     }
@@ -259,7 +266,7 @@ sub ignore_case {
 }
 
 sub match_recursive {
-    my ($query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions) = @_;
+    my ( $query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions ) = @_;
     my %result;
     foreach my $cpos ( @{ $candidates->[$token] } ) {
         my $local_candidates        = dclone($candidates);
