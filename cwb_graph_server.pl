@@ -18,6 +18,19 @@ use lib '/home/linguistik/tsproisl/local/lib/perl5/site_perl/x86_64-linux-thread
 use CWB::CQP;
 use CWB::CL;
 
+# should we chroot?
+
+# fork once, and let the parent exit
+{
+    my $pid = fork;
+    exit if ($pid);
+    die("Couldn't fork: $!") unless ( defined($pid) );
+}
+
+# dissociate from the controlling terminal that started us and stop
+# being part of whatever process group we had been a member of
+POSIX::setsid() or die("Can't start a new session: $!");
+
 # make STDOUT hot
 {
     my $ofh = select STDOUT;
@@ -95,7 +108,7 @@ sub handle_connection {
     $cqp->exec($corpus);
     $CWB::CL::Registry = '/localhome/Databases/CWB/registry';
     ###/TODO
-    $corpus_handle     = new CWB::CL::Corpus $corpus;
+    $corpus_handle = new CWB::CL::Corpus $corpus;
     my $querymode        = "collo-word";
     my $case_sensitivity = 0;
     my $queryid          = 0;
@@ -156,6 +169,6 @@ sub log {
 }
 
 END {
-    close($server);
+    close($server) if(defined($server));
     &log("Shutdown $$");
 }
