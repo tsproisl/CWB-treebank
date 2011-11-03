@@ -6,7 +6,6 @@ use strict;
 use IO::Socket;
 use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Fcntl qw(:flock);
-use Config::Simple;
 use threads;
 use threads::shared;
 
@@ -33,8 +32,7 @@ use CWB::CL;
 POSIX::setsid() or die("Can't start a new session: $!");
 
 # read config
-my %config;
-Config::Simple->import_from( 'cwb-treebank_server.cfg', \%config );
+my %config = do "cwb-treebank_server.cfg";
 
 # open logfile
 open( my $log, ">", $config{"logfile"} ) or die("Cannot open logfile: $!");
