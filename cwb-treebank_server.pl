@@ -14,19 +14,22 @@ use CWB::treebank;
 use CWB::CQP;
 use CWB::CL;
 
+# read config
+my %config = do "cwb-treebank_server.cfg";
+
 # fork once, and let the parent exit
 {
     my $pid = fork;
     exit if ($pid);
-    die("Couldn't fork: $!") unless ( defined($pid) );
+    die("Couldn't fork: $!") unless ( defined($pid) );    
 }
+
+# redirect STDERR
+open(STDERR, ">>", $config{"logfile"}) or die("Can't reopen STDERR: $!");
 
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
 POSIX::setsid() or die("Can't start a new session: $!");
-
-# read config
-my %config = do "cwb-treebank_server.cfg";
 
 # open logfile
 open( my $log, ">>", $config{"logfile"} ) or die("Cannot open logfile: $!");
@@ -65,6 +68,7 @@ $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); $time_to_die =
 
 &log("Hello, here's your server speaking. My pid is $$");
 &log("Waiting for clients on port #$server_port.");
+print STDERR "foo\n";
 while ( not $time_to_die ) {
     while ( ( my $client = $server->accept ) ) {
         if ( not $config{"clients"}->{ $client->peerhost() } ) {
