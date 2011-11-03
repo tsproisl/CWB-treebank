@@ -4,8 +4,6 @@ use warnings;
 use strict;
 
 use IO::Socket;
-use Proc::Daemon;
-#use Proc::PID::File;
 use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Fcntl qw(:flock);
 use threads;
@@ -19,36 +17,24 @@ use CWB::CL;
 # read config
 my %config = do "cwb-treebank_server.cfg";
 
-# If already running, then exit
-if ( -e $config{"pidfile"}) {
-    exit(0);
+POSIX::setuid( $config{"uid"} );
+
+# fork once, and let the parent exit
+{
+    my $pid = fork;
+    exit if ($pid);
+    die("Couldn't fork: $!") unless ( defined($pid) );
 }
 
-# Daemonize
-Proc::Daemon::Init(
-    {   "work_dir"     => $config{"work_dir"},
-	"setuid"       => 1000,
-        "child_STDERR" => ">>" . $config{"logfile"},
-        "pid_file"     => $config{"pidfile"},
-    }
-);
+# redirect STDERR
+open( STDERR, ">>", $config{"logfile"} ) or die("Can't reopen STDERR: $!");
 
-# become session-leader
+# dissociate from the controlling terminal that started us and stop
+# being part of whatever process group we had been a member of
 POSIX::setsid() or die("Can't start a new session: $!");
 
-# # fork once, and let the parent exit
-# {
-#     my $pid = fork;
-#     exit if ($pid);
-#     die("Couldn't fork: $!") unless ( defined($pid) );
-# }
-
-# # redirect STDERR
-# open(STDERR, ">>", $config{"logfile"}) or die("Can't reopen STDERR: $!");
-
-# # dissociate from the controlling terminal that started us and stop
-# # being part of whatever process group we had been a member of
-# POSIX::setsid() or die("Can't start a new session: $!");
+# clear file creation mask
+umask 0;
 
 # open logfile
 open( my $log, ">>", $config{"logfile"} ) or die("Cannot open logfile: $!");
