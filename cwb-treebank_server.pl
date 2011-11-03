@@ -11,10 +11,6 @@ use threads::shared;
 
 use CWB::treebank;
 
-###TODO
-use lib '/home/linguistik/tsproisl/local/lib/perl5/site_perl';
-use lib '/home/linguistik/tsproisl/local/lib/perl5/site_perl/x86_64-linux-thread-multi';
-###/TODO
 use CWB::CQP;
 use CWB::CL;
 
@@ -73,6 +69,10 @@ $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); $time_to_die =
 &log("Waiting for clients on port #$server_port.");
 while ( not $time_to_die ) {
     while ( ( my $client = $server->accept ) ) {
+	if (not $config{"clients"}->{$client->peerhost()}) {
+	    &log( sprintf( "Ignored conncection from %s", $client->peerhost() ) );
+	    next;
+	}
         &log( sprintf( "Accepted conncection from %s", $client->peerhost() ) );
         my $pid = fork();
         die "fork: $!" unless defined $pid;

@@ -10,7 +10,7 @@ use Encode;
 
 my $json = new JSON;
 
-my $remote_host = "clue47.linguistik.uni-erlangen.de";
+my $remote_host = "clue43.linguistik.uni-erlangen.de";
 my $remote_port = 5931;
 
 my $socket = IO::Socket::INET->new(
@@ -84,6 +84,7 @@ my $should_be_empty = $json->encode(
     ]
 );
 
+print $socket "corpus BNC_PARSED";
 print $socket "mode sentence\n";
 &match_graph($bachelor);
 exit;
