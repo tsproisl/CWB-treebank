@@ -31,7 +31,7 @@ POSIX::setsid() or die("Can't start a new session: $!");
 my %config = do "cwb-treebank_server.cfg";
 
 # open logfile
-open( my $log, ">", $config{"logfile"} ) or die("Cannot open logfile: $!");
+open( my $log, ">>", $config{"logfile"} ) or die("Cannot open logfile: $!");
 
 # make filehandle hot
 {
