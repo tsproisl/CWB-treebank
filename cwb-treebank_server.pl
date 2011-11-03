@@ -10,7 +10,7 @@ use Config::Simple;
 use threads;
 use threads::shared;
 
-use cwb_graph;
+use CWB::treebank;
 
 ###TODO
 use lib '/home/linguistik/tsproisl/local/lib/perl5/site_perl';
@@ -103,21 +103,22 @@ while ( not $time_to_die ) {
 sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
-    ###TODO: Corpus handles as hash values stored under corpus name
-    my ( $cqp, $corpus_handle );
-    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef $cqp; undef $corpus_handle; $socket->close(); exit; };
-    my $corpus = "BNC_PARSED";
+    my ( $cqp, %corpus_handles );
+    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef $cqp; undef $corpus_handles{$_} foreach ( keys %corpus_handles ); $socket->close(); exit; };
     $cqp = new CWB::CQP;
     $cqp->set_error_handler('die');
-    ###TODO
     $cqp->exec( "set Registry '" . $config{"registry"} . "'" );
-    $cqp->exec($corpus);
     $CWB::CL::Registry = $config{"registry"};
-    ###/TODO
-    $corpus_handle = new CWB::CL::Corpus $corpus;
+
+    foreach my $corpus ( @{ $config{"corpora"} } ) {
+        $corpus_handles{$corpus} = new CWB::CL::Corpus $corpus;
+    }
+    my $corpus           = $config{"default_corpus"};
+    my $corpus_handle    = $corpus_handles{$corpus};
     my $querymode        = "collo-word";
     my $case_sensitivity = 0;
     my $queryid          = 0;
+    $cqp->exec($corpus);
 
     # mode (collo-word|collo-lemma|sentence)
     # case-sensitivity (yes|no)
@@ -126,6 +127,18 @@ sub handle_connection {
         chomp($queryref);
         $queryref =~ s/\s*$//;
         &log( "[$queryid] " . $queryref );
+        if ( $queryref =~ /^corpus ([\p{IsLu}_\d]+)$/ ) {
+            if ( defined( $corpus_handles{$1} ) ) {
+                $corpus = $1;
+                $corpus_handle = $corpus_handles{$corpus};
+                $cqp->exec($corpus);
+		&log("Switched corpus to '$corpus'");
+            }
+	    else {
+		&log("Unknown corpus '$corpus'");
+	    }
+	    next;
+        }
         if ( $queryref =~ /^mode (collo-word|collo-lemma|sentence|collo)$/ ) {
             $querymode = $1;
             $querymode = "collo-word" if ( $querymode eq "collo" );
@@ -144,7 +157,7 @@ sub handle_connection {
             next;
         }
         if ( $queryref =~ /^\[\[\{.*\}\]\]$/ ) {
-            my $result = &cwb_graph::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity );
+            my $result = &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity );
             print $output "finito\n";
             &log("answered $queryid");
             next;
