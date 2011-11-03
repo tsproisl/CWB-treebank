@@ -6,6 +6,7 @@ use strict;
 use IO::Socket;
 use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Fcntl qw(:flock);
+use Config::Simple;
 use threads;
 use threads::shared;
 
@@ -31,14 +32,21 @@ use CWB::CL;
 # being part of whatever process group we had been a member of
 POSIX::setsid() or die("Can't start a new session: $!");
 
-# make STDOUT hot
+# read config
+my %config;
+Config::Simple->import_from( 'cwb-treebank_server.cfg', \%config );
+
+# open logfile
+open( my $log, ">", $config{"logfile"} ) or die("Cannot open logfile: $!");
+
+# make filehandle hot
 {
-    my $ofh = select STDOUT;
+    my $ofh = select $log;
     $| = 1;
     select $ofh;
 }
 
-my $server_port = 5931;
+my $server_port = $config{"server_port"};
 my $server      = IO::Socket::INET->new(
     LocalPort => $server_port,
     Type      => SOCK_STREAM,
@@ -66,7 +74,7 @@ $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); $time_to_die =
 &log("Hello, here's your server speaking. My pid is $$");
 &log("Waiting for clients on port #$server_port.");
 while ( not $time_to_die ) {
-    while ( ( my $client = $server->accept ) ) {    #and not $time_to_die ) {
+    while ( ( my $client = $server->accept ) ) {
         &log( sprintf( "Accepted conncection from %s", $client->peerhost() ) );
         my $pid = fork();
         die "fork: $!" unless defined $pid;
@@ -87,8 +95,6 @@ while ( not $time_to_die ) {
             }
             my $thread = threads->create( \&kill_child, $pid )->detach;
         }
-
-        #my $thread = threads->create( \&handle_connection, $client )->detach;
     }
 }
 
@@ -104,9 +110,9 @@ sub handle_connection {
     $cqp = new CWB::CQP;
     $cqp->set_error_handler('die');
     ###TODO
-    $cqp->exec("set Registry '/localhome/Databases/CWB/registry'");
+    $cqp->exec( "set Registry '" . $config{"registry"} . "'" );
     $cqp->exec($corpus);
-    $CWB::CL::Registry = '/localhome/Databases/CWB/registry';
+    $CWB::CL::Registry = $config{"registry"};
     ###/TODO
     $corpus_handle = new CWB::CL::Corpus $corpus;
     my $querymode        = "collo-word";
@@ -163,12 +169,15 @@ sub log {
     my @abbr = qw( Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec );
     my ( $sec, $min, $hour, $mday, $mon ) = (localtime)[ 0 .. 4 ];
     my $time = sprintf( "%s %02d %02d:%02d:%02d, %d", $abbr[$mon], $mday, $hour, $min, $sec, $$ );
-    flock( STDOUT, LOCK_EX ) or die "can't lock stdout: $!";
-    print "[$time] $string\n";
-    flock( STDOUT, LOCK_UN ) or die "can't unlock stdout: $!";
+    flock( $log, LOCK_EX ) or die "can't lock stdout: $!";
+    print $log "[$time] $string\n";
+    flock( $log, LOCK_UN ) or die "can't unlock stdout: $!";
 }
 
 END {
-    close($server) if(defined($server));
-    &log("Shutdown $$");
+    close($server) if ( defined($server) );
+    if ( defined($log) ) {
+        &log("Shutdown $$");
+        close($log) or die("Cannot close logfile: $!");
+    }
 }
