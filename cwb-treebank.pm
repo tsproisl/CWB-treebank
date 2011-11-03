@@ -1,4 +1,4 @@
-package cwb_graph;
+package cwb-treebank;
 
 use warnings;
 use strict;
