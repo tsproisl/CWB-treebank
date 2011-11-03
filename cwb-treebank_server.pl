@@ -26,7 +26,8 @@ if ( -e $config{"pidfile"}) {
 
 # Daemonize
 Proc::Daemon::Init(
-    {   "setuid"       => 1000,
+    {   "work_dir"     => $config{"work_dir"},
+	"setuid"       => 1000,
         "child_STDERR" => ">>" . $config{"logfile"},
         "pid_file"     => $config{"pidfile"},
     }
