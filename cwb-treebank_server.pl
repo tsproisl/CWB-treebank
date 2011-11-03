@@ -14,7 +14,11 @@ use CWB::treebank;
 use CWB::CQP;
 use CWB::CL;
 
-# should we chroot?
+# read config
+my %config = do "cwb-treebank_server.cfg";
+
+# chroot
+chroot( $config{"chroot_path"} ) or die( "Couldn't chroot to " . $config{"chroot_path"} . ": $!" );
 
 # fork once, and let the parent exit
 {
@@ -26,9 +30,6 @@ use CWB::CL;
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
 POSIX::setsid() or die("Can't start a new session: $!");
-
-# read config
-my %config = do "cwb-treebank_server.cfg";
 
 # open logfile
 open( my $log, ">>", $config{"logfile"} ) or die("Cannot open logfile: $!");
@@ -69,10 +70,10 @@ $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); $time_to_die =
 &log("Waiting for clients on port #$server_port.");
 while ( not $time_to_die ) {
     while ( ( my $client = $server->accept ) ) {
-	if (not $config{"clients"}->{$client->peerhost()}) {
-	    &log( sprintf( "Ignored conncection from %s", $client->peerhost() ) );
-	    next;
-	}
+        if ( not $config{"clients"}->{ $client->peerhost() } ) {
+            &log( sprintf( "Ignored conncection from %s", $client->peerhost() ) );
+            next;
+        }
         &log( sprintf( "Accepted conncection from %s", $client->peerhost() ) );
         my $pid = fork();
         die "fork: $!" unless defined $pid;
@@ -127,15 +128,15 @@ sub handle_connection {
         &log( "[$queryid] " . $queryref );
         if ( $queryref =~ /^corpus ([\p{IsLu}_\d]+)$/ ) {
             if ( defined( $corpus_handles{$1} ) ) {
-                $corpus = $1;
+                $corpus        = $1;
                 $corpus_handle = $corpus_handles{$corpus};
                 $cqp->exec($corpus);
-		&log("Switched corpus to '$corpus'");
+                &log("Switched corpus to '$corpus'");
             }
-	    else {
-		&log("Unknown corpus '$corpus'");
-	    }
-	    next;
+            else {
+                &log("Unknown corpus '$corpus'");
+            }
+            next;
         }
         if ( $queryref =~ /^mode (collo-word|collo-lemma|sentence|collo)$/ ) {
             $querymode = $1;
