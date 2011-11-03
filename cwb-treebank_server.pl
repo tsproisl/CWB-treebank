@@ -14,12 +14,6 @@ use CWB::treebank;
 use CWB::CQP;
 use CWB::CL;
 
-# read config
-my %config = do "cwb-treebank_server.cfg";
-
-# chroot
-chroot( $config{"chroot_path"} ) or die( "Couldn't chroot to " . $config{"chroot_path"} . ": $!" );
-
 # fork once, and let the parent exit
 {
     my $pid = fork;
@@ -30,6 +24,9 @@ chroot( $config{"chroot_path"} ) or die( "Couldn't chroot to " . $config{"chroot
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
 POSIX::setsid() or die("Can't start a new session: $!");
+
+# read config
+my %config = do "cwb-treebank_server.cfg";
 
 # open logfile
 open( my $log, ">>", $config{"logfile"} ) or die("Cannot open logfile: $!");
