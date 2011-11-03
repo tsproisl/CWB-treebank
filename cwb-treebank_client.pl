@@ -84,7 +84,7 @@ my $should_be_empty = $json->encode(
     ]
 );
 
-print $socket "corpus BNC_PARSED";
+print $socket "corpus BNC_PARSED\n";
 print $socket "mode sentence\n";
 &match_graph($bachelor);
 exit;
