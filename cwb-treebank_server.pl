@@ -9,10 +9,12 @@ use Fcntl qw(:flock);
 use threads;
 use threads::shared;
 
-use CWB::treebank;
-
 use CWB::CQP;
 use CWB::CL;
+
+use File::Basename;
+use lib basename ($0);
+use CWB::treebank;
 
 # read config
 my %config = do "cwb-treebank_server.cfg";
