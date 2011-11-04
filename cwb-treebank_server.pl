@@ -26,9 +26,9 @@ POSIX::setuid( $config{"uid"} );
     my $pidfile = $config{"pidfile"};
     my $pid     = fork;
     if ($pid) {
-        open PIDFILE, ">$pidfile" or die "can't open $pidfile: $!\n";
+        open (PIDFILE, ">", $pidfile) or die("Can't open $pidfile: $!");
         print PIDFILE $pid;
-        close PIDFILE;
+        close(PIDFILE) or die("Can't close $pidfile: $!");
         exit;
     }
     die("Couldn't fork: $!") unless ( defined($pid) );
