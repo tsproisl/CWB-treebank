@@ -8,6 +8,7 @@ use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Fcntl qw(:flock);
 use threads;
 use threads::shared;
+use DBI;
 
 use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl";
 use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl/x86_64-linux-thread-multi";
@@ -28,9 +29,9 @@ POSIX::setuid( $config{"uid"} );
     my $pidfile = $config{"pidfile"};
     my $pid     = fork;
     if ($pid) {
-        open PIDFILE, ">$pidfile" or die "can't open $pidfile: $!\n";
+        open( PIDFILE, ">", $pidfile ) or die("Can't open $pidfile: $!");
         print PIDFILE $pid;
-        close PIDFILE;
+        close(PIDFILE) or die("Can't close $pidfile: $!");
         exit;
     }
     die("Couldn't fork: $!") unless ( defined($pid) );
@@ -119,12 +120,13 @@ while ( not $time_to_die ) {
 sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
-    my ( $cqp, %corpus_handles );
-    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef $cqp; undef $corpus_handles{$_} foreach ( keys %corpus_handles ); $socket->close(); exit; };
+    my ( $cqp, %corpus_handles, $dbh );
+    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef($cqp); undef( $corpus_handles{$_} ) foreach ( keys %corpus_handles ); $dbh->do("ROLLBACK"); undef($dbh); $socket->close(); exit; };
     $cqp = new CWB::CQP;
     $cqp->set_error_handler('die');
     $cqp->exec( "set Registry '" . $config{"registry"} . "'" );
     $CWB::CL::Registry = $config{"registry"};
+    $dbh               = &connect_to_cache_db();
 
     foreach my $corpus ( @{ $config{"corpora"} } ) {
         $corpus_handles{$corpus} = new CWB::CL::Corpus $corpus;
@@ -181,7 +183,18 @@ sub handle_connection {
         &log("ignored $queryid");
     }
     undef($cqp);
-    undef($corpus_handle);
+    undef $corpus_handles{$_} foreach ( keys %corpus_handles );
+    undef($dbh);
+}
+
+sub connect_to_cache_db {
+    my $dbh = DBI->connect( "dbi:SQLite:dbname=" . $config{"cache_db"}, "", "" ) or die("Cannot connect: $DBI::errstr");
+    $dbh->do(qq{SELECT icu_load_collation('en_GB', 'BE')});
+    $dbh->do(qq{PRAGMA foreign_keys = ON});
+    #$dbh->do(qq{CREATE TABLE IF NOT EXISTS });
+    #$dbh->do(qq{CREATE INDEX IF NOT EXISTS });
+    #$dbh->do(qq{CREATE TRIGGER IF NOT EXISTS });
+    return $dbh;
 }
 
 sub kill_child {
