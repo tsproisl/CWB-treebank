@@ -10,7 +10,7 @@ use Encode;
 
 my $json = new JSON;
 
-my $remote_host = "clue43.linguistik.uni-erlangen.de";
+my $remote_host = "localhost";
 my $remote_port = 5931;
 
 my $socket = IO::Socket::INET->new(

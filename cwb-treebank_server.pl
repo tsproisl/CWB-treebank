@@ -9,6 +9,8 @@ use Fcntl qw(:flock);
 use threads;
 use threads::shared;
 
+use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl";
+use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl/x86_64-linux-thread-multi";
 use CWB::CQP;
 use CWB::CL;
 
@@ -23,7 +25,7 @@ POSIX::setuid( $config{"uid"} );
 
 # fork once, and let the parent exit
 {
-    my $pidfile = $config{"pidfile"}
+    my $pidfile = $config{"pidfile"};
     my $pid     = fork;
     if ($pid) {
         open PIDFILE, ">$pidfile" or die "can't open $pidfile: $!\n";
