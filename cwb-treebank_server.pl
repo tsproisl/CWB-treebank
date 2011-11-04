@@ -23,7 +23,7 @@ POSIX::setuid( $config{"uid"} );
 
 # fork once, and let the parent exit
 {
-    my $pidfile = $config{"pidfile"}
+    my $pidfile = $config{"pidfile"};
     my $pid     = fork;
     if ($pid) {
         open PIDFILE, ">$pidfile" or die "can't open $pidfile: $!\n";
