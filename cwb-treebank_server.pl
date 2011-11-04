@@ -23,15 +23,21 @@ POSIX::setuid( $config{"uid"} );
 
 # fork once, and let the parent exit
 {
-    my $pid = fork;
-    exit if ($pid);
+    my $pidfile = $config{"pidfile"}
+    my $pid     = fork;
+    if ($pid) {
+        open PIDFILE, ">$pidfile" or die "can't open $pidfile: $!\n";
+        print PIDFILE $pid;
+        close PIDFILE;
+        exit;
+    }
     die("Couldn't fork: $!") unless ( defined($pid) );
 }
 
 # redirect STDERR, STDIN, STDOUT
 open( STDERR, ">>", $config{"logfile"} ) or die("Can't reopen STDERR: $!");
-open( STDIN, "<", "/dev/null" ) or die("Can't reopen STDIN: $!");
-open( STDOUT, ">", "/dev/null" ) or die("Can't reopen STDOUT: $!");
+open( STDIN,  "<",  "/dev/null" )        or die("Can't reopen STDIN: $!");
+open( STDOUT, ">",  "/dev/null" )        or die("Can't reopen STDOUT: $!");
 
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
