@@ -12,8 +12,8 @@ use threads::shared;
 use CWB::CQP;
 use CWB::CL;
 
-use File::Basename;
-use lib basename ($0);
+use FindBin;
+use lib $FindBin::Bin;
 use CWB::treebank;
 
 # read config
