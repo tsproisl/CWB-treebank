@@ -9,6 +9,7 @@ use Fcntl qw(:flock);
 use threads;
 use threads::shared;
 use DBI;
+use File::Spec;
 
 use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl";
 use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl/x86_64-linux-thread-multi";
@@ -38,9 +39,9 @@ POSIX::setuid( $config{"uid"} );
 }
 
 # redirect STDERR, STDIN, STDOUT
-open( STDERR, ">>", $config{"logfile"} ) or die("Can't reopen STDERR: $!");
-open( STDIN,  "<",  "/dev/null" )        or die("Can't reopen STDIN: $!");
-open( STDOUT, ">",  "/dev/null" )        or die("Can't reopen STDOUT: $!");
+open( STDERR, ">>", $config{"logfile"} )    or die("Can't reopen STDERR: $!");
+open( STDIN,  "<",  File::Spec->devnull() ) or die("Can't reopen STDIN: $!");
+open( STDOUT, ">",  File::Spec->devnull() ) or die("Can't reopen STDOUT: $!");
 
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
@@ -188,12 +189,39 @@ sub handle_connection {
 }
 
 sub connect_to_cache_db {
-    my $dbh = DBI->connect( "dbi:SQLite:dbname=" . $config{"cache_db"}, "", "" ) or die("Cannot connect: $DBI::errstr");
+    my $cache_size = $config{"cache_size"};
+    my $dbh = DBI->connect( "dbi:SQLite:dbname=" . File::Spec->catfile($config{"cache_dir"}, $config{"cache_db"}), "", "" ) or die("Cannot connect: $DBI::errstr");
     $dbh->do(qq{SELECT icu_load_collation('en_GB', 'BE')});
     $dbh->do(qq{PRAGMA foreign_keys = ON});
-    #$dbh->do(qq{CREATE TABLE IF NOT EXISTS });
-    #$dbh->do(qq{CREATE INDEX IF NOT EXISTS });
-    #$dbh->do(qq{CREATE TRIGGER IF NOT EXISTS });
+    $dbh->sqlite_create_function( "rmfile", 1, sub { unlink map( File::Spec->catfile("user_data", $_), @_ ); } );
+    $dbh->do(
+        qq{
+CREATE TABLE IF NOT EXISTS queries (
+    qid INTEGER PRIMARY KEY,
+    corpus TEXT NOT NULL,
+    query TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    UNIQUE (corpus, query)
+)}
+    );
+    $dbh->do(
+        qq{
+CREATE TRIGGER IF NOT EXISTS limit_to_cache_size AFTER INSERT ON queries
+    WHEN (SELECT count(*) FROM queries) > $cache_size
+    BEGIN
+        SELECT rmfile(qid) FROM queries WHERE qid IN (
+            SELECT qid FROM queries ORDER BY time ASC LIMIT (
+                SELECT count(*) - $cache_size FROM queries
+            )
+        );
+        DELETE FROM queries WHERE qid IN (
+            SELECT qid FROM queries ORDER BY time ASC LIMIT (
+                SELECT count(*) - $cache_size FROM queries
+            )
+        );
+    END
+}
+    );
     return $dbh;
 }
 
