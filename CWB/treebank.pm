@@ -11,7 +11,7 @@ my $bnc_tokens = 112254391;
 ###/TODO
 
 sub match_graph {
-    my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity ) = @_;
+    my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
     my $query = decode_json($queryref);
     my @result;
     $cqp->exec($corpus);
@@ -55,6 +55,10 @@ sub match_graph {
         my $token = 0;
         my $result = &match_recursive( $query, \%p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
         if ( ref($result) eq "HASH" ) {
+	    # $Data::Dumper::Indent = 0;
+	    # $Data::Dumper::Purity = 1;
+	    # store $sid in hash
+	    # dump and print to $cache_handle
             my ( $start, $end ) = $s_id->struc2cpos($sid);
             if ( $querymode eq "collo-word" ) {
                 print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } ), "\n";
