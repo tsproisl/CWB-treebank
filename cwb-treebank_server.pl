@@ -121,7 +121,7 @@ sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
     my ( $cqp, %corpus_handles, $dbh );
-    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef($cqp); undef( $corpus_handles{$_} ) foreach ( keys %corpus_handles ); undef($dbh); $socket->close(); exit; };
+    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); $socket->close(); undef($cqp); undef( $corpus_handles{$_} ) foreach ( keys %corpus_handles ); undef($dbh); exit; };
     $cqp = new CWB::CQP;
     $cqp->set_error_handler('die');
     $cqp->exec( "set Registry '" . $config{"registry"} . "'" );
