@@ -29,7 +29,10 @@ sub match_graph {
     $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
 
     # cancel if there are no restrictions
-    if ( $queryref =~ m/^[][}{,.*+ ]*$/ ) {
+    my $local_queryref = $queryref;
+    $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://g;
+    $local_queryref =~ s/"\.[*+?]"//g;
+    if ( $local_queryref =~ m/^[][}{, ]*$/ ) {
         print $cache_handle Data::Dumper->Dump( [ [ "", {} ] ], ["dump"] ), "\n";
         return;
     }
