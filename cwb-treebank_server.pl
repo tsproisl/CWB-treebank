@@ -8,6 +8,9 @@ use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Fcntl qw(:flock);
 use threads;
 use threads::shared;
+use DBI;
+use File::Spec;
+use Time::HiRes;
 
 use CWB::CQP;
 use CWB::CL;
@@ -26,7 +29,7 @@ POSIX::setuid( $config{"uid"} );
     my $pidfile = $config{"pidfile"};
     my $pid     = fork;
     if ($pid) {
-        open (PIDFILE, ">", $pidfile) or die("Can't open $pidfile: $!");
+        open( PIDFILE, ">", $pidfile ) or die("Can't open $pidfile: $!");
         print PIDFILE $pid;
         close(PIDFILE) or die("Can't close $pidfile: $!");
         exit;
@@ -35,9 +38,9 @@ POSIX::setuid( $config{"uid"} );
 }
 
 # redirect STDERR, STDIN, STDOUT
-open( STDERR, ">>", $config{"logfile"} ) or die("Can't reopen STDERR: $!");
-open( STDIN,  "<",  "/dev/null" )        or die("Can't reopen STDIN: $!");
-open( STDOUT, ">",  "/dev/null" )        or die("Can't reopen STDOUT: $!");
+open( STDERR, ">>", $config{"logfile"} )    or die("Can't reopen STDERR: $!");
+open( STDIN,  "<",  File::Spec->devnull() ) or die("Can't reopen STDIN: $!");
+open( STDOUT, ">",  File::Spec->devnull() ) or die("Can't reopen STDOUT: $!");
 
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
@@ -117,12 +120,18 @@ while ( not $time_to_die ) {
 sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
-    my ( $cqp, %corpus_handles );
-    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef $cqp; undef $corpus_handles{$_} foreach ( keys %corpus_handles ); $socket->close(); exit; };
+    my ( $cqp, %corpus_handles, $dbh );
+    $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); undef($cqp); undef( $corpus_handles{$_} ) foreach ( keys %corpus_handles ); $dbh->do("ROLLBACK"); undef($dbh); $socket->close(); exit; };
     $cqp = new CWB::CQP;
     $cqp->set_error_handler('die');
     $cqp->exec( "set Registry '" . $config{"registry"} . "'" );
     $CWB::CL::Registry = $config{"registry"};
+    $dbh               = &connect_to_cache_db();
+
+    # prepare SQL statements
+    my $select_qid   = $dbh->prepare(qq{SELECT qid FROM queries WHERE corpus = ? AND query = ?});
+    my $insert_query = $dbh->prepare(qq{INSERT INTO queries (corpus, query, time) VALUES (?, ?, strftime('%s','now'))});
+    my $update_query = $dbh->prepare(qq{UPDATE queries SET time = strftime('%s','now') WHERE qid = ?});
 
     foreach my $corpus ( @{ $config{"corpora"} } ) {
         $corpus_handles{$corpus} = new CWB::CL::Corpus $corpus;
@@ -171,15 +180,90 @@ sub handle_connection {
             next;
         }
         if ( $queryref =~ /^\[\[\{.*\}\]\]$/ ) {
-            my $result = &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity );
+            my $cache_handle;
+            my $t0 = [&Time::HiRes::gettimeofday];
+            my $cached;
+            $dbh->do(qq{BEGIN EXCLUSIVE TRANSACTION});
+            $select_qid->execute( $corpus, $queryref );
+            my $qids = $select_qid->fetchall_arrayref;
+            my $qid;
+            if ( @$qids == 0 ) {
+                $cached = 0;
+                $insert_query->execute( $corpus, $queryref );
+                $select_qid->execute( $corpus, $queryref );
+                $qids = $select_qid->fetchall_arrayref;
+                $qid  = $qids->[0]->[0];
+                open( $cache_handle, ">", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
+                flock( $cache_handle, LOCK_EX );
+                $dbh->do(qq{COMMIT});
+                &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
+                flock( $cache_handle, LOCK_UN );
+                close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
+            }
+            else {
+                $cached = 1;
+                $qid    = $qids->[0]->[0];
+                $update_query->execute($qid);
+                $dbh->do(qq{COMMIT});
+            }
+            open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
+            flock( $cache_handle, LOCK_SH );
+            while ( my $line = <$cache_handle> ) {
+                chomp($line);
+                my $dump;
+                eval $line;
+                my ( $sid, $result ) = @$dump;
+                print $output &CWB::treebank::transform_output( $corpus_handle, $querymode, $sid, $result ) . "\n";
+            }
+            flock( $cache_handle, LOCK_UN );
+            close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             print $output "finito\n";
-            &log("answered $queryid");
+            &log( sprintf( "answered %s in %.3fs (%s)", $queryid, Time::HiRes::tv_interval( $t0, [&Time::HiRes::gettimeofday] ), $cached ? "cached" : "not cached" ) );
             next;
         }
         &log("ignored $queryid");
     }
     undef($cqp);
-    undef($corpus_handle);
+    undef $corpus_handles{$_} foreach ( keys %corpus_handles );
+    undef($dbh);
+}
+
+sub connect_to_cache_db {
+    my $cache_size = $config{"cache_size"};
+    my $dbh = DBI->connect( "dbi:SQLite:dbname=" . File::Spec->catfile( $config{"cache_dir"}, $config{"cache_db"} ), "", "" ) or die("Cannot connect: $DBI::errstr");
+
+    #$dbh->do(qq{SELECT icu_load_collation('en_GB', 'BE')});
+    #$dbh->do(qq{PRAGMA foreign_keys = ON});
+    $dbh->sqlite_create_function( "rmfile", 1, sub { unlink map( File::Spec->catfile( $config{"cache_dir"}, $_ ), @_ ); } );
+    $dbh->do(
+        qq{
+CREATE TABLE IF NOT EXISTS queries (
+    qid INTEGER PRIMARY KEY,
+    corpus TEXT NOT NULL,
+    query TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    UNIQUE (corpus, query)
+)}
+    );
+    $dbh->do(
+        qq{
+CREATE TRIGGER IF NOT EXISTS limit_to_cache_size AFTER INSERT ON queries
+    WHEN (SELECT count(*) FROM queries) > $cache_size
+    BEGIN
+        SELECT rmfile(qid) FROM queries WHERE qid IN (
+            SELECT qid FROM queries ORDER BY time ASC LIMIT (
+                SELECT count(*) - $cache_size FROM queries
+            )
+        );
+        DELETE FROM queries WHERE qid IN (
+            SELECT qid FROM queries ORDER BY time ASC LIMIT (
+                SELECT count(*) - $cache_size FROM queries
+            )
+        );
+    END
+}
+    );
+    return $dbh;
 }
 
 sub kill_child {
