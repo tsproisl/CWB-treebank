@@ -10,6 +10,7 @@ use threads;
 use threads::shared;
 use DBI;
 use File::Spec;
+use Time::HiRes;
 
 use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl";
 use lib "/home/linguistik/tsproisl/local/lib/perl5/site_perl/x86_64-linux-thread-multi";
@@ -182,11 +183,14 @@ sub handle_connection {
         }
         if ( $queryref =~ /^\[\[\{.*\}\]\]$/ ) {
             my $cache_handle;
+	    my $t0 = [&Time::HiRes::gettimeofday];
+	    my $cached;
             $dbh->do(qq{BEGIN EXCLUSIVE TRANSACTION});
             $select_qid->execute( $corpus, $queryref );
             my $qids = $select_qid->fetchall_arrayref;
             my $qid;
             if ( @$qids == 0 ) {
+		$cached = 0;
                 $insert_query->execute( $corpus, $queryref );
                 $select_qid->execute( $corpus, $queryref );
                 $qids = $select_qid->fetchall_arrayref;
@@ -199,7 +203,7 @@ sub handle_connection {
                 close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             }
             else {
-		&log("Using cache");
+		$cached = 1;
                 $qid = $qids->[0]->[0];
                 $update_query->execute($qid);
                 $dbh->do(qq{COMMIT});
@@ -216,7 +220,7 @@ sub handle_connection {
             flock( $cache_handle, LOCK_UN );
             close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             print $output "finito\n";
-            &log("answered $queryid");
+            &log(sprintf("answered %s in %.3fs (%s)", $queryid, Time::HiRes::tv_interval($t0, [&Time::HiRes::gettimeofday]), $cached ? "cached" : "not cached"));
             next;
         }
         &log("ignored $queryid");

@@ -17,6 +17,7 @@ sub match_graph {
     local $Data::Dumper::Purity = 1;
     my $query = decode_json($queryref);
     my @result;
+    $cqp->exec($corpus);
     my $sentence = $corpus_handle->attribute( "s",    "s" );
     my $s_id     = $corpus_handle->attribute( "s_id", "s" );
     my %p_attributes;
