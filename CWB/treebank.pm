@@ -5,6 +5,7 @@ use strict;
 
 use Storable qw( dclone );
 use JSON;
+use Data::Dumper;
 
 ###TODO
 my $bnc_tokens = 112254391;
@@ -12,14 +13,12 @@ my $bnc_tokens = 112254391;
 
 sub match_graph {
     my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
+    local $Data::Dumper::Indent = 0;
+    local $Data::Dumper::Purity = 1;
     my $query = decode_json($queryref);
     my @result;
-    $cqp->exec($corpus);
-    ###TODO aus config file einlesen
     my $sentence = $corpus_handle->attribute( "s",    "s" );
     my $s_id     = $corpus_handle->attribute( "s_id", "s" );
-
-    #my $s_dbid     = $corpus_handle->attribute( "s_dbid", "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
@@ -27,11 +26,10 @@ sub match_graph {
     $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
     $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
     $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
-    ###/TODO
 
     # cancel if there are no restrictions
     if ( $queryref =~ m/^[][\}\{, ]*$/ ) {
-        print $output encode_json( {} ), "\n";
+        print $cache_handle Data::Dumper->Dump( [ [ "", {} ] ], ["dump"] ), "\n";
         return;
     }
 
@@ -55,21 +53,34 @@ sub match_graph {
         my $token = 0;
         my $result = &match_recursive( $query, \%p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
         if ( ref($result) eq "HASH" ) {
-	    # $Data::Dumper::Indent = 0;
-	    # $Data::Dumper::Purity = 1;
-	    # store $sid in hash
-	    # dump and print to $cache_handle
-            my ( $start, $end ) = $s_id->struc2cpos($sid);
-            if ( $querymode eq "collo-word" ) {
-                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } ), "\n";
-            }
-            elsif ( $querymode eq "collo-lemma" ) {
-                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "lemma" ) ] } ), "\n";
-            }
-            elsif ( $querymode eq "sentence" ) {
-                print $output encode_json( { "s_id" => $s_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( \%p_attributes, $result, $start ) ] } ), "\n";
-            }
+            print $cache_handle Data::Dumper->Dump( [ [ $sid, $result ] ], ["dump"] ) . "\n";
         }
+    }
+}
+
+sub transform_output {
+    my ( $corpus_handle, $querymode, $sid, $result ) = @_;
+    if ( $sid eq "" and %$result == 0 ) {
+        return encode_json( {} );
+    }
+    my $s_id = $corpus_handle->attribute( "s_id", "s" );
+    my %p_attributes;
+    $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
+    $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
+    $p_attributes{"lemma"}  = $corpus_handle->attribute( "lemma",  "p" );
+    $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
+    $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
+    $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
+    my ( $start, $end ) = $s_id->struc2cpos($sid);
+
+    if ( $querymode eq "collo-word" ) {
+        return encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } );
+    }
+    elsif ( $querymode eq "collo-lemma" ) {
+        return encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "lemma" ) ] } );
+    }
+    elsif ( $querymode eq "sentence" ) {
+        return encode_json( { "s_id" => $s_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( $result, $start ) ] } );
     }
 }
 
@@ -214,11 +225,12 @@ sub remove_used_up_positions {
     for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
         my $foo = $local_candidates->[$i];
         for ( my $j = 0; $j <= $#$foo; $j++ ) {
-	    # remove corpus position at $local_candidates->[$i]->[$j]
-	    # if the corpus position is in $used_up_positions and the
-	    # node stored there is not the one represented by $i;
-	    # i.e. corpus positions already in use cannot be used for
-	    # another node
+
+            # remove corpus position at $local_candidates->[$i]->[$j]
+            # if the corpus position is in $used_up_positions and the
+            # node stored there is not the one represented by $i;
+            # i.e. corpus positions already in use cannot be used for
+            # another node
             splice( @{ $local_candidates->[$i] }, $j, 1 ) if ( defined( $used_up_positions->{ $local_candidates->[$i]->[$j] } ) and $i != $used_up_positions->{ $local_candidates->[$i]->[$j] } );
         }
     }
@@ -248,7 +260,7 @@ sub to_string {
 }
 
 sub to_relative_position {
-    my ( $p_attributes, $result, $start ) = @_;
+    my ( $result, $start ) = @_;
     my @collection;
     foreach my $query_number ( keys %$result ) {
         foreach my $cpos ( keys %{ $result->{$query_number} } ) {
@@ -256,7 +268,7 @@ sub to_relative_position {
                 push( @collection, [ $cpos - $start ] );
             }
             else {
-                foreach my $deeper ( &to_relative_position( $p_attributes, $result->{$query_number}->{$cpos}, $start ) ) {
+                foreach my $deeper ( &to_relative_position( $result->{$query_number}->{$cpos}, $start ) ) {
                     push( @collection, [ $cpos - $start, @$deeper ] );
                 }
             }

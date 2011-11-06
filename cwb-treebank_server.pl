@@ -189,15 +189,17 @@ sub handle_connection {
             if ( @$qids == 0 ) {
                 $insert_query->execute( $corpus, $queryref );
                 $select_qid->execute( $corpus, $queryref );
-                $qid = ( $select_qid->fetchall_arrayref )[0]->[0];
+                $qids = $select_qid->fetchall_arrayref;
+                $qid = $qids->[0]->[0];
                 open( $cache_handle, ">", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
                 flock( $cache_handle, LOCK_EX );
                 $dbh->do(qq{COMMIT});
                 &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
-                close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
                 flock( $cache_handle, LOCK_UN );
+                close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             }
             else {
+		&log("Using cache");
                 $qid = $qids->[0]->[0];
                 $update_query->execute($qid);
                 $dbh->do(qq{COMMIT});
@@ -205,11 +207,15 @@ sub handle_connection {
             open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             flock( $cache_handle, LOCK_SH );
             while ( my $line = <$cache_handle> ) {
-                ###TODO: eval, transform and print results
+		chomp($line);
+		my $dump;
+		eval $line;
+		my ($sid, $result) = @$dump;
+		print $output &CWB::treebank::transform_output($corpus_handle, $querymode, $sid, $result) . "\n";
             }
+            flock( $cache_handle, LOCK_UN );
             close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             print $output "finito\n";
-            flock( $cache_handle, LOCK_UN );
             &log("answered $queryid");
             next;
         }
@@ -223,9 +229,9 @@ sub handle_connection {
 sub connect_to_cache_db {
     my $cache_size = $config{"cache_size"};
     my $dbh = DBI->connect( "dbi:SQLite:dbname=" . File::Spec->catfile( $config{"cache_dir"}, $config{"cache_db"} ), "", "" ) or die("Cannot connect: $DBI::errstr");
-    $dbh->do(qq{SELECT icu_load_collation('en_GB', 'BE')});
-    $dbh->do(qq{PRAGMA foreign_keys = ON});
-    $dbh->sqlite_create_function( "rmfile", 1, sub { unlink map( File::Spec->catfile( "user_data", $_ ), @_ ); } );
+    #$dbh->do(qq{SELECT icu_load_collation('en_GB', 'BE')});
+    #$dbh->do(qq{PRAGMA foreign_keys = ON});
+    $dbh->sqlite_create_function( "rmfile", 1, sub { unlink map( File::Spec->catfile( $config{"cache_dir"}, $_ ), @_ ); } );
     $dbh->do(
         qq{
 CREATE TABLE IF NOT EXISTS queries (

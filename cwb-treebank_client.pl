@@ -87,7 +87,6 @@ my $should_be_empty = $json->encode(
 print $socket "corpus BNC_PARSED\n";
 print $socket "mode sentence\n";
 &match_graph($bachelor);
-exit;
 &match_graph($give_me_the_creeps);
 &match_graph($ditransitive);
 &match_graph($monotransitive_give);
