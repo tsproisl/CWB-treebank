@@ -64,8 +64,7 @@ my $server      = IO::Socket::INET->new(
     LocalPort => $server_port,
     Type      => SOCK_STREAM,
     ReuseAddr => 1,
-    Listen    => 10,
-    Blocking  => 0
+    Listen    => 10
 ) or die("Couldn't be a tcp server on port $server_port : $@");
 
 my $parent = $$;
