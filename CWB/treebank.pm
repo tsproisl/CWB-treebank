@@ -43,12 +43,14 @@ sub match_graph {
 
     # execute query
     my @ids;
+    my @corpus_order;
     my @freq_alignment;
     my @inverse_alignment;
-    &execute_query( $cqp, $s_id, $query, \@ids, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
+    &execute_query( $cqp, $s_id, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
 
     # match
-    foreach my $sid ( keys %{ $ids[$#ids] } ) {
+    #foreach my $sid ( keys %{ $ids[$#ids] } ) {
+    foreach my $sid (@$corpus_order) {
         my @candidates;
         my %used_up_positions;
         foreach my $token ( 0 .. $#$query ) {
@@ -110,9 +112,10 @@ sub check_frequencies {
 }
 
 sub execute_query {
-    my ( $cqp, $s_id, $query, $ids, $freq_alignment, $inverse_alignment, $case_sensitivity, %frequencies ) = @_;
+    my ( $cqp, $s_id, $query, $ids, $corpus_order, $freq_alignment, $inverse_alignment, $case_sensitivity, %frequencies ) = @_;
     foreach my $i ( sort { $frequencies{$a} <=> $frequencies{$b} } keys %frequencies ) {
         push( @$ids, {} );
+        @$corpus_order = ();
         $freq_alignment->[$i] = $#$ids;
         push( @$inverse_alignment, $i );
         my $querystring = &build_query( $query, $i, $case_sensitivity );
@@ -123,6 +126,7 @@ sub execute_query {
             foreach my $match ( $cqp->exec("tabulate Last match") ) {
                 my $sid = $s_id->cpos2struc($match);
                 push( @{ $ids->[$#$ids]->{$sid} }, $match );
+                push( @$corpus_order,              $sid );
             }
         }
 
