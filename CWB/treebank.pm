@@ -49,8 +49,8 @@ sub match_graph {
     &execute_query( $cqp, $s_id, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
 
     # match
-    #foreach my $sid ( keys %{ $ids[$#ids] } ) {
-    foreach my $sid (@corpus_order) {
+    foreach my $sid ( keys %{ $ids[$#ids] } ) {
+    #foreach my $sid (@corpus_order) {
         my @candidates;
         my %used_up_positions;
         foreach my $token ( 0 .. $#$query ) {
