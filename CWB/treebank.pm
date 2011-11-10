@@ -50,7 +50,7 @@ sub match_graph {
 
     # match
     #foreach my $sid ( keys %{ $ids[$#ids] } ) {
-    foreach my $sid (@$corpus_order) {
+    foreach my $sid (@corpus_order) {
         my @candidates;
         my %used_up_positions;
         foreach my $token ( 0 .. $#$query ) {
