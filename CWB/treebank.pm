@@ -7,10 +7,6 @@ use Storable qw( dclone );
 use JSON;
 use Data::Dumper;
 
-###TODO
-my $bnc_tokens = 112254391;
-###/TODO
-
 sub match_graph {
     my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
     local $Data::Dumper::Indent = 0;
@@ -39,7 +35,7 @@ sub match_graph {
 
     # check frequencies
     my %frequencies;
-    &check_frequencies( $cqp, $query, \%frequencies, $case_sensitivity );
+    &check_frequencies( $cqp, $query, \%frequencies, $case_sensitivity, \%p_attributes );
 
     # execute query
     my @ids;
@@ -49,8 +45,8 @@ sub match_graph {
     &execute_query( $cqp, $s_id, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
 
     # match
-    foreach my $sid ( keys %{ $ids[$#ids] } ) {
-    #foreach my $sid (@corpus_order) {
+    #foreach my $sid ( keys %{ $ids[$#ids] } ) {
+    foreach my $sid (@corpus_order) {
         my @candidates;
         my %used_up_positions;
         foreach my $token ( 0 .. $#$query ) {
@@ -91,7 +87,7 @@ sub transform_output {
 }
 
 sub check_frequencies {
-    my ( $cqp, $query, $frequencies, $case_sensitivity ) = @_;
+    my ( $cqp, $query, $frequencies, $case_sensitivity, $p_attributes ) = @_;
     for ( my $i = 0; $i <= $#$query; $i++ ) {
         my $token = $query->[$i]->[$i];
 
@@ -104,7 +100,7 @@ sub check_frequencies {
             ( $frequencies->{$i} ) = $cqp->exec("size A");
         }
         else {
-            $frequencies->{$i} = $bnc_tokens;
+            $frequencies->{$i} = $p_attributes->{"word"}->max_cpos;
 
             #die("It seems that the input graph is not connected. Is that right?\n");
         }
@@ -125,8 +121,8 @@ sub execute_query {
         if ( ( $cqp->exec("size Last") )[0] > 0 ) {
             foreach my $match ( $cqp->exec("tabulate Last match") ) {
                 my $sid = $s_id->cpos2struc($match);
+                push( @$corpus_order, $sid ) unless ( defined( $ids->[$#$ids]->{$sid} ) );
                 push( @{ $ids->[$#$ids]->{$sid} }, $match );
-                push( @$corpus_order,              $sid );
             }
         }
 
