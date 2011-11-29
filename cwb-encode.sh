@@ -1,15 +1,21 @@
 #!/bin/bash
 
-data="/localhome/Corpora/BNC_PARSED"
-regfile="bnc_parsed"
-name="BNC_PARSED"
-outdir=$5
-registry="/localhome/Databases/CWB/registry"
-infile="/localhome/Databases/BNC/bnc.xml.lem.deps"
+if [ $# -ne 5 ]
+then
+    echo "./cwb-encode.sh data_directory corpus_name registry_directory registry_file input_file"
+    exit -1
+fi
+
+data=$1
+name=$2
+registry=$3
+regfile=$4
+infile=$5
+
+mkdir -p $data
 
 export CORPUS_REGISTRY="$registry"
-export PERL5LIB="/home/linguistik/tsproisl/local/lib/perl5/site_perl"
 
-cwb-encode -d $data $infile -R "$registry/$regfile" -xsB -P pos -P lemma -P wc -P indep -P outdep -S s:0+id+dbid -0 corpus
+cwb-encode -d $data -f $infile -R "$registry/$regfile" -xsB -P pos -P lemma -P wc -P indep -P outdep -P root -S s:0+id+id_md5_base64+original_id -S text:0+id+original_id -0 corpus
 
 cwb-make -M 500 -V "$name"
