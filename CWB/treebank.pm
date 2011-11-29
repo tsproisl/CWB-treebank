@@ -16,6 +16,7 @@ sub match_graph {
     $cqp->exec($corpus);
     my $sentence = $corpus_handle->attribute( "s",    "s" );
     my $s_id     = $corpus_handle->attribute( "s_id", "s" );
+    my $s_original_id     = $corpus_handle->attribute( "s_original_id", "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
@@ -66,6 +67,7 @@ sub transform_output {
         return encode_json( {} );
     }
     my $s_id = $corpus_handle->attribute( "s_id", "s" );
+    my $s_original_id     = $corpus_handle->attribute( "s_original_id", "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
@@ -76,13 +78,13 @@ sub transform_output {
     my ( $start, $end ) = $s_id->struc2cpos($sid);
 
     if ( $querymode eq "collo-word" ) {
-        return encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } );
+        return encode_json( { "s_id" => $s_id->struc2str($sid), "s_original_id" => $s_original_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } );
     }
     elsif ( $querymode eq "collo-lemma" ) {
-        return encode_json( { "s_id" => $s_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "lemma" ) ] } );
+        return encode_json( { "s_id" => $s_id->struc2str($sid), "s_original_id" => $s_original_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "lemma" ) ] } );
     }
     elsif ( $querymode eq "sentence" ) {
-        return encode_json( { "s_id" => $s_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( $result, $start ) ] } );
+        return encode_json( { "s_id" => $s_id->struc2str($sid), "s_original_id" => $s_original_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( $result, $start ) ] } );
     }
 }
 
