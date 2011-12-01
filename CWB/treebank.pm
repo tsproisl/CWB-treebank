@@ -186,7 +186,7 @@ REL: for ( my $i = 0; $i <= $#rels; $i++ ) {
         next REL unless ( defined($rel) );
         my $found = 0;
         foreach my $indep (@indeps) {
-            if ( $indep =~ m/^$rel\((?<offset>-?\d+)('*),/ ) {
+            if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)('*),/ ) {
                 my $offset = $+{"offset"};
                 $offset = "+" . $offset unless ( substr( $offset, 0, 1 ) eq "-" );
                 push( @{ $filter[$i] }, eval "$cpos$offset" );
