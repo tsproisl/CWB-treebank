@@ -144,12 +144,12 @@ sub build_query {
     push( @querystring, $tokrestr ) if ($tokrestr);
 
     #my $indeps = join( ' & ', map( '(indep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
-    my $indeps = join( ' & ', map { join( ' & ', map( '(indep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) } grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) );
+    my $indeps = join( ' & ', map { '(' . join( ' | ', map( '(indep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) );
     $indeps .= ' & (ambiguity(indep) >= ' . scalar( grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($indeps);
     push( @querystring, $indeps ) if ($indeps);
 
     #my $outdeps = join( ' & ', map( '(outdep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
-    my $outdeps = join( ' & ', map { join( ' & ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) );
+    my $outdeps = join( ' & ', map { '(' . join( ' | ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) );
     $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($outdeps);
     push( @querystring, $outdeps ) if ($outdeps);
     my $querystring = join( ' & ', @querystring );
