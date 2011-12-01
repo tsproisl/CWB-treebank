@@ -14,9 +14,9 @@ sub match_graph {
     my $query = decode_json($queryref);
     my @result;
     $cqp->exec($corpus);
-    my $sentence = $corpus_handle->attribute( "s",    "s" );
-    my $s_id     = $corpus_handle->attribute( "s_id", "s" );
-    my $s_original_id     = $corpus_handle->attribute( "s_original_id", "s" );
+    my $sentence      = $corpus_handle->attribute( "s",             "s" );
+    my $s_id          = $corpus_handle->attribute( "s_id",          "s" );
+    my $s_original_id = $corpus_handle->attribute( "s_original_id", "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
@@ -66,8 +66,8 @@ sub transform_output {
     if ( $sid eq "" and %$result == 0 ) {
         return encode_json( {} );
     }
-    my $s_id = $corpus_handle->attribute( "s_id", "s" );
-    my $s_original_id     = $corpus_handle->attribute( "s_original_id", "s" );
+    my $s_id          = $corpus_handle->attribute( "s_id",          "s" );
+    my $s_original_id = $corpus_handle->attribute( "s_original_id", "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
@@ -142,10 +142,14 @@ sub build_query {
     #my $tokrestr = join( " & ", map( '(' . $_ . ' = "' . $token->{$_} . '"' . &ignore_case($_) . ")", keys %$token ) );
     my $tokrestr = join( " & ", map( &map_token_restrictions( $_, $token->{$_}, $case_sensitivity ), keys %$token ) );
     push( @querystring, $tokrestr ) if ($tokrestr);
-    my $indeps = join( ' & ', map( '(indep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
+
+    #my $indeps = join( ' & ', map( '(indep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
+    my $indeps = join( ' & ', map { join( ' & ', map( '(indep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) } grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) );
     $indeps .= ' & (ambiguity(indep) >= ' . scalar( grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($indeps);
     push( @querystring, $indeps ) if ($indeps);
-    my $outdeps = join( ' & ', map( '(outdep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
+
+    #my $outdeps = join( ' & ', map( '(outdep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
+    my $outdeps = join( ' & ', map { join( ' & ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) );
     $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($outdeps);
     push( @querystring, $outdeps ) if ($outdeps);
     my $querystring = join( ' & ', @querystring );
