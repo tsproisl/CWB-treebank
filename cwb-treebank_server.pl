@@ -129,8 +129,8 @@ sub handle_connection {
     $dbh               = &connect_to_cache_db();
 
     # prepare SQL statements
-    my $select_qid   = $dbh->prepare(qq{SELECT qid FROM queries WHERE corpus = ? AND query = ?});
-    my $insert_query = $dbh->prepare(qq{INSERT INTO queries (corpus, query, time) VALUES (?, ?, strftime('%s','now'))});
+    my $select_qid   = $dbh->prepare(qq{SELECT qid FROM queries WHERE corpus = ? AND case-sensitivity=? AND query = ?});
+    my $insert_query = $dbh->prepare(qq{INSERT INTO queries (corpus, case-sensitivity, query, time) VALUES (?, ?, ?, strftime('%s','now'))});
     my $update_query = $dbh->prepare(qq{UPDATE queries SET time = strftime('%s','now') WHERE qid = ?});
 
     foreach my $corpus ( @{ $config{"corpora"} } ) {
@@ -185,13 +185,13 @@ sub handle_connection {
 	    my ($t1, $t2, $t3);
             my $cached;
             $dbh->do(qq{BEGIN EXCLUSIVE TRANSACTION});
-            $select_qid->execute( $corpus, $queryref );
+            $select_qid->execute( $corpus, $case_sensitivity, $queryref );
             my $qids = $select_qid->fetchall_arrayref;
             my $qid;
             if ( @$qids == 0 ) {
                 $cached = 0;
-                $insert_query->execute( $corpus, $queryref );
-                $select_qid->execute( $corpus, $queryref );
+                $insert_query->execute( $corpus, $case_sensitivity, $queryref );
+                $select_qid->execute( $corpus, $case_sensitivity, $queryref );
                 $qids = $select_qid->fetchall_arrayref;
                 $qid  = $qids->[0]->[0];
                 open( $cache_handle, ">", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
@@ -246,9 +246,10 @@ sub connect_to_cache_db {
 CREATE TABLE IF NOT EXISTS queries (
     qid INTEGER PRIMARY KEY,
     corpus TEXT NOT NULL,
+    case-sensitivity INTEGER NOT NULL,
     query TEXT NOT NULL,
     time INTEGER NOT NULL,
-    UNIQUE (corpus, query)
+    UNIQUE (corpus, case-sensitivity, query)
 )}
     );
     $dbh->do(
