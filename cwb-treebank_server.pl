@@ -129,8 +129,8 @@ sub handle_connection {
     $dbh               = &connect_to_cache_db();
 
     # prepare SQL statements
-    my $select_qid   = $dbh->prepare(qq{SELECT qid FROM queries WHERE corpus = ? AND case-sensitivity=? AND query = ?});
-    my $insert_query = $dbh->prepare(qq{INSERT INTO queries (corpus, case-sensitivity, query, time) VALUES (?, ?, ?, strftime('%s','now'))});
+    my $select_qid   = $dbh->prepare(qq{SELECT qid FROM queries WHERE corpus = ? AND casesensitivity = ? AND query = ?});
+    my $insert_query = $dbh->prepare(qq{INSERT INTO queries (corpus, casesensitivity, query, time) VALUES (?, ?, ?, strftime('%s','now'))});
     my $update_query = $dbh->prepare(qq{UPDATE queries SET time = strftime('%s','now') WHERE qid = ?});
 
     foreach my $corpus ( @{ $config{"corpora"} } ) {
@@ -246,10 +246,10 @@ sub connect_to_cache_db {
 CREATE TABLE IF NOT EXISTS queries (
     qid INTEGER PRIMARY KEY,
     corpus TEXT NOT NULL,
-    case-sensitivity INTEGER NOT NULL,
+    casesensitivity INTEGER NOT NULL,
     query TEXT NOT NULL,
     time INTEGER NOT NULL,
-    UNIQUE (corpus, case-sensitivity, query)
+    UNIQUE (corpus, casesensitivity, query)
 )}
     );
     $dbh->do(
