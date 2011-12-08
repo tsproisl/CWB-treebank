@@ -211,7 +211,7 @@ sub handle_connection {
                 $t1 = [&Time::HiRes::gettimeofday];
                 open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
                 flock( $cache_handle, LOCK_SH );
-		my ($s_attributes, $p_attributes) = &CWB::treebank::get_corpus_attributes($corpus_handle)
+		my ($s_attributes, $p_attributes) = &CWB::treebank::get_corpus_attributes($corpus_handle);
                 while ( my $line = <$cache_handle> ) {
                     chomp($line);
                     my $dump;
