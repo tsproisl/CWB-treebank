@@ -211,12 +211,13 @@ sub handle_connection {
                 $t1 = [&Time::HiRes::gettimeofday];
                 open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
                 flock( $cache_handle, LOCK_SH );
+		my ($s_attributes, $p_attributes) = &CWB::treebank::get_corpus_attributes($corpus_handle)
                 while ( my $line = <$cache_handle> ) {
                     chomp($line);
                     my $dump;
                     eval $line;
                     my ( $sid, $result ) = @$dump;
-                    print $output &CWB::treebank::transform_output( &CWB::treebank::get_corpus_attributes($corpus_handle), $querymode, $sid, $result ) . "\n";
+                    print $output &CWB::treebank::transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n";
                 }
                 flock( $cache_handle, LOCK_UN );
                 close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
