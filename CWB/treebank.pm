@@ -303,7 +303,7 @@ sub get_corpus_attributes {
     $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
     $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
     $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
-    return (\%s_attribute, \%p_attributes);
+    return (\%s_attributes, \%p_attributes);
 }
 
 1;
