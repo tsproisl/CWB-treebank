@@ -33,7 +33,7 @@ sub match_graph {
     my @corpus_order;
     my @freq_alignment;
     my @inverse_alignment;
-    &execute_query( $cqp, $s_attribute->{"s_id"}, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
+    &execute_query( $cqp, $s_attributes->{"s_id"}, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
 
     # match
     #foreach my $sid ( keys %{ $ids[$#ids] } ) {
