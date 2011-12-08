@@ -14,17 +14,7 @@ sub match_graph {
     my $query = decode_json($queryref);
     my @result;
     $cqp->exec($corpus);
-    my $sentence      = $corpus_handle->attribute( "s",             "s" );
-    my $s_id          = $corpus_handle->attribute( "s_id",          "s" );
-    my $s_original_id = $corpus_handle->attribute( "s_original_id", "s" );
-    my %p_attributes;
-    $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
-    $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
-    $p_attributes{"lemma"}  = $corpus_handle->attribute( "lemma",  "p" );
-    $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
-    $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
-    $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
-
+    my ($s_attributes, $p_attributes) = &get_corpus_attributes($corpus_handle);
     # cancel if there are no restrictions
     my $local_queryref = $queryref;
     $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://g;
@@ -36,14 +26,14 @@ sub match_graph {
 
     # check frequencies
     my %frequencies;
-    &check_frequencies( $cqp, $query, \%frequencies, $case_sensitivity, \%p_attributes );
+    &check_frequencies( $cqp, $query, \%frequencies, $case_sensitivity, $p_attributes );
 
     # execute query
     my @ids;
     my @corpus_order;
     my @freq_alignment;
     my @inverse_alignment;
-    &execute_query( $cqp, $s_id, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
+    &execute_query( $cqp, $s_attribute->{"s_id"}, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
 
     # match
     #foreach my $sid ( keys %{ $ids[$#ids] } ) {
@@ -54,37 +44,29 @@ sub match_graph {
             $candidates[$token] = [ @{ $ids[ $freq_alignment[$token] ]->{$sid} } ];
         }
         my $token = 0;
-        my $result = &match_recursive( $query, \%p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
+        my $result = &match_recursive( $query, $p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
         if ( ref($result) eq "HASH" ) {
             print $cache_handle Data::Dumper->Dump( [ [ $sid, $result ] ], ["dump"] ) . "\n";
+            print $output &transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n";
         }
     }
 }
 
 sub transform_output {
-    my ( $corpus_handle, $querymode, $sid, $result ) = @_;
+    my ( $s_attributes, $p_attributes, $querymode, $sid, $result ) = @_;
     if ( $sid eq "" and %$result == 0 ) {
         return encode_json( {} );
     }
-    my $s_id          = $corpus_handle->attribute( "s_id",          "s" );
-    my $s_original_id = $corpus_handle->attribute( "s_original_id", "s" );
-    my %p_attributes;
-    $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
-    $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
-    $p_attributes{"lemma"}  = $corpus_handle->attribute( "lemma",  "p" );
-    $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
-    $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
-    $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
-    my ( $start, $end ) = $s_id->struc2cpos($sid);
+    my ( $start, $end ) = $s_attributes->{"s_id"}->struc2cpos($sid);
 
     if ( $querymode eq "collo-word" ) {
-        return encode_json( { "s_id" => $s_id->struc2str($sid), "s_original_id" => $s_original_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "word" ) ] } );
+        return encode_json( { "s_id" => $s_attributes->{"s_id"}->struc2str($sid), "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid), "tokens" => [ &to_string( $p_attributes, $result, "word" ) ] } );
     }
     elsif ( $querymode eq "collo-lemma" ) {
-        return encode_json( { "s_id" => $s_id->struc2str($sid), "s_original_id" => $s_original_id->struc2str($sid), "tokens" => [ &to_string( \%p_attributes, $result, "lemma" ) ] } );
+        return encode_json( { "s_id" => $s_attributes->{"s_id"}->struc2str($sid), "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid), "tokens" => [ &to_string( $p_attributes, $result, "lemma" ) ] } );
     }
     elsif ( $querymode eq "sentence" ) {
-        return encode_json( { "s_id" => $s_id->struc2str($sid), "s_original_id" => $s_original_id->struc2str($sid), "sentence" => [ $p_attributes{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( $result, $start ) ] } );
+        return encode_json( { "s_id" => $s_attributes->{"s_id"}->struc2str($sid), "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid), "sentence" => [ $p_attributes->{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( $result, $start ) ] } );
     }
 }
 
@@ -190,7 +172,7 @@ REL: for ( my $i = 0; $i <= $#rels; $i++ ) {
         next REL unless ( defined($rel) );
         my $found = 0;
         foreach my $indep (@indeps) {
-            if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)('*),/ ) {
+            if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)(?:&apos;)*,/ ) {
                 my $offset = $+{"offset"};
                 $offset = "+" . $offset unless ( substr( $offset, 0, 1 ) eq "-" );
                 push( @{ $filter[$i] }, eval "$cpos$offset" );
@@ -306,6 +288,22 @@ sub match_recursive {
         }
     }
     return %result ? \%result : undef;
+}
+
+sub get_corpus_attributes {
+    my ($corpus_handle) = @_;
+    my %s_attributes;
+    $s_attributes{"sentence"}      = $corpus_handle->attribute( "s",             "s" );
+    $s_attributes{"s_id"}          = $corpus_handle->attribute( "s_id",          "s" );
+    $s_attributes{"s_original_id"} = $corpus_handle->attribute( "s_original_id", "s" );
+    my %p_attributes;
+    $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
+    $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
+    $p_attributes{"lemma"}  = $corpus_handle->attribute( "lemma",  "p" );
+    $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
+    $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
+    $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
+    return (\%s_attribute, \%p_attributes);
 }
 
 1;

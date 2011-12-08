@@ -182,12 +182,13 @@ sub handle_connection {
         if ( $queryref =~ /^\[\[\{.*\}\]\]$/ ) {
             my $cache_handle;
             my $t0 = [&Time::HiRes::gettimeofday];
-	    my ($t1, $t2, $t3);
+            my ( $t1, $t2, $t3 );
             my $cached;
             $dbh->do(qq{BEGIN EXCLUSIVE TRANSACTION});
             $select_qid->execute( $corpus, $case_sensitivity, $queryref );
             my $qids = $select_qid->fetchall_arrayref;
             my $qid;
+
             if ( @$qids == 0 ) {
                 $cached = 0;
                 $insert_query->execute( $corpus, $case_sensitivity, $queryref );
@@ -197,7 +198,7 @@ sub handle_connection {
                 open( $cache_handle, ">", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
                 flock( $cache_handle, LOCK_EX );
                 $dbh->do(qq{COMMIT});
-		$t1 = [&Time::HiRes::gettimeofday];
+                $t1 = [&Time::HiRes::gettimeofday];
                 &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
                 flock( $cache_handle, LOCK_UN );
                 close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
@@ -207,24 +208,24 @@ sub handle_connection {
                 $qid    = $qids->[0]->[0];
                 $update_query->execute($qid);
                 $dbh->do(qq{COMMIT});
-		$t1 = [&Time::HiRes::gettimeofday];
+                $t1 = [&Time::HiRes::gettimeofday];
+                open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
+                flock( $cache_handle, LOCK_SH );
+                while ( my $line = <$cache_handle> ) {
+                    chomp($line);
+                    my $dump;
+                    eval $line;
+                    my ( $sid, $result ) = @$dump;
+                    print $output &CWB::treebank::transform_output( &CWB::treebank::get_corpus_attributes($corpus_handle), $querymode, $sid, $result ) . "\n";
+                }
+                flock( $cache_handle, LOCK_UN );
+                close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             }
-	    $t2 = [&Time::HiRes::gettimeofday];
-            open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
-            flock( $cache_handle, LOCK_SH );
-            while ( my $line = <$cache_handle> ) {
-                chomp($line);
-                my $dump;
-                eval $line;
-                my ( $sid, $result ) = @$dump;
-                print $output &CWB::treebank::transform_output( $corpus_handle, $querymode, $sid, $result ) . "\n";
-            }
-            flock( $cache_handle, LOCK_UN );
-            close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             print $output "finito\n";
-	    $t3 = [&Time::HiRes::gettimeofday];
+            $t2 = [&Time::HiRes::gettimeofday];
+
             #&log( sprintf( "answered %s in %.3fs (%s)", $queryid, Time::HiRes::tv_interval( $t0, $t3 ), $cached ? "cached" : "not cached" ) );
-            &log( sprintf( "answered %s in %.3fs (%s, %.3f + %.3f + %.3f)", $queryid, Time::HiRes::tv_interval( $t0, $t3 ), $cached ? "cached" : "not cached", Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ), Time::HiRes::tv_interval( $t2, $t3 ) ) );
+            &log( sprintf( "answered %s in %.3fs (%s, %.3f + %.3f)", $queryid, Time::HiRes::tv_interval( $t0, $t2 ), $cached ? "cached" : "not cached", Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ) ) );
             next;
         }
         &log("ignored $queryid");
