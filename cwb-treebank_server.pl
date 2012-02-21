@@ -29,18 +29,18 @@ POSIX::setuid( $config{"uid"} );
     my $pidfile = $config{"pidfile"};
     my $pid     = fork;
     if ($pid) {
-        open( PIDFILE, ">", $pidfile ) or die("Can't open $pidfile: $!");
-        print PIDFILE $pid;
-        close(PIDFILE) or die("Can't close $pidfile: $!");
+        open( my $PIDFILE, ">", $pidfile ) or die("Can't open $pidfile: $!");
+        print $PIDFILE $pid;
+        close($PIDFILE) or die("Can't close $pidfile: $!");
         exit;
     }
     die("Couldn't fork: $!") unless ( defined($pid) );
 }
 
 # redirect STDERR, STDIN, STDOUT
-open( STDERR, ">>", $config{"logfile"} )    or die("Can't reopen STDERR: $!");
-open( STDIN,  "<",  File::Spec->devnull() ) or die("Can't reopen STDIN: $!");
-open( STDOUT, ">",  File::Spec->devnull() ) or die("Can't reopen STDOUT: $!");
+#open( STDERR, ">>", $config{"logfile"} )    or die("Can't reopen STDERR: $!");
+#open( STDIN,  "<",  File::Spec->devnull() ) or die("Can't reopen STDIN: $!");
+#open( STDOUT, ">",  File::Spec->devnull() ) or die("Can't reopen STDOUT: $!");
 
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
@@ -150,6 +150,8 @@ sub handle_connection {
         chomp($queryref);
         $queryref =~ s/\s*$//;
         &log( "[$queryid] " . $queryref );
+
+        # Switch corpus
         if ( $queryref =~ /^corpus ([\p{IsLu}_\d]+)$/ ) {
             if ( defined( $corpus_handles{$1} ) ) {
                 $corpus        = $1;
@@ -162,12 +164,16 @@ sub handle_connection {
             }
             next;
         }
+
+        # Switch mode
         if ( $queryref =~ /^mode (collo-word|collo-lemma|sentence|collo)$/ ) {
             $querymode = $1;
             $querymode = "collo-word" if ( $querymode eq "collo" );
             &log("Switched query mode to '$querymode'");
             next;
         }
+
+        # Switch case-sensitivity
         if ( $queryref =~ /^case-sensitivity (yes|no)$/ ) {
             if ( $1 eq "yes" ) {
                 $case_sensitivity = 1;
@@ -179,6 +185,8 @@ sub handle_connection {
             }
             next;
         }
+
+        # Perform query
         if ( $queryref =~ /^\[\[\{.*\}\]\]$/ ) {
             my $cache_handle;
             my $t0 = [&Time::HiRes::gettimeofday];
@@ -189,6 +197,7 @@ sub handle_connection {
             my $qids = $select_qid->fetchall_arrayref;
             my $qid;
 
+	    # query is not cached
             if ( @$qids == 0 ) {
                 $cached = 0;
                 $insert_query->execute( $corpus, $case_sensitivity, $queryref );
@@ -203,6 +212,8 @@ sub handle_connection {
                 flock( $cache_handle, LOCK_UN );
                 close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             }
+
+	    # query is cached
             else {
                 $cached = 1;
                 $qid    = $qids->[0]->[0];
@@ -211,7 +222,8 @@ sub handle_connection {
                 $t1 = [&Time::HiRes::gettimeofday];
                 open( $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) ) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
                 flock( $cache_handle, LOCK_SH );
-		my ($s_attributes, $p_attributes) = &CWB::treebank::get_corpus_attributes($corpus_handle);
+                my ( $s_attributes, $p_attributes ) = &CWB::treebank::get_corpus_attributes($corpus_handle);
+
                 while ( my $line = <$cache_handle> ) {
                     chomp($line);
                     my $dump;
@@ -222,15 +234,17 @@ sub handle_connection {
                 flock( $cache_handle, LOCK_UN );
                 close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             }
+
             print $output "finito\n";
             $t2 = [&Time::HiRes::gettimeofday];
-
-            #&log( sprintf( "answered %s in %.3fs (%s)", $queryid, Time::HiRes::tv_interval( $t0, $t3 ), $cached ? "cached" : "not cached" ) );
             &log( sprintf( "answered %s in %.3fs (%s, %.3f + %.3f)", $queryid, Time::HiRes::tv_interval( $t0, $t2 ), $cached ? "cached" : "not cached", Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ) ) );
             next;
         }
+
+	# malformed query, ignore
         &log("ignored $queryid");
     }
+
     undef($cqp);
     undef $corpus_handles{$_} foreach ( keys %corpus_handles );
     undef($dbh);

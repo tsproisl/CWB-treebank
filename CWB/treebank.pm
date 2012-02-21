@@ -6,6 +6,7 @@ use strict;
 use Storable qw( dclone );
 use JSON;
 use Data::Dumper;
+use List::MoreUtils qw( uniq );
 
 sub match_graph {
     my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
@@ -14,38 +15,33 @@ sub match_graph {
     my $query = decode_json($queryref);
     my @result;
     $cqp->exec($corpus);
-    my ($s_attributes, $p_attributes) = &get_corpus_attributes($corpus_handle);
+    my ( $s_attributes, $p_attributes ) = &get_corpus_attributes($corpus_handle);
+
     # cancel if there are no restrictions
     my $local_queryref = $queryref;
     $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://g;
     $local_queryref =~ s/"\.[*+?]"//g;
     if ( $local_queryref =~ m/^[][}{, ]*$/ ) {
-        print $cache_handle Data::Dumper->Dump( [ [ "", {} ] ], ["dump"] ), "\n";
+        print $cache_handle Data::Dumper->Dump( [ [ "", [] ] ], ["dump"] ), "\n";
         return;
     }
 
     # check frequencies
-    my %frequencies;
-    &check_frequencies( $cqp, $query, \%frequencies, $case_sensitivity, $p_attributes );
+    my %frequencies = &check_frequencies( $cqp, $query, $case_sensitivity, $p_attributes );
 
     # execute query
-    my @ids;
+    my %ids;
     my @corpus_order;
-    my @freq_alignment;
-    my @inverse_alignment;
-    &execute_query( $cqp, $s_attributes->{"s_id"}, $query, \@ids, \@corpus_order, \@freq_alignment, \@inverse_alignment, $case_sensitivity, %frequencies );
+    &execute_query( $cqp, $s_attributes->{"s_id"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
 
     # match
-    #foreach my $sid ( keys %{ $ids[$#ids] } ) {
     foreach my $sid (@corpus_order) {
-        my @candidates;
         my %used_up_positions;
-        foreach my $token ( 0 .. $#$query ) {
-            $candidates[$token] = [ @{ $ids[ $freq_alignment[$token] ]->{$sid} } ];
-        }
-        my $token = 0;
-        my $result = &match_recursive( $query, $p_attributes, \@freq_alignment, $token, \@candidates, $sid, \%used_up_positions );
-        if ( ref($result) eq "HASH" ) {
+        my $candidates_ref = dclone $ids{$sid};
+        my $depth          = 0;
+        my %depth_to_token = map { $_ => $_ } ( 0 .. $#$query );
+        my $result         = &match( $depth, $query, $p_attributes, \%depth_to_token, $candidates_ref, \%used_up_positions );
+        if ( defined $result ) {
             print $cache_handle Data::Dumper->Dump( [ [ $sid, $result ] ], ["dump"] ) . "\n";
             print $output &transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n";
         }
@@ -54,24 +50,53 @@ sub match_graph {
 
 sub transform_output {
     my ( $s_attributes, $p_attributes, $querymode, $sid, $result ) = @_;
-    if ( $sid eq "" and %$result == 0 ) {
+    if ( $sid eq "" and @$result == 0 ) {
         return encode_json( {} );
     }
     my ( $start, $end ) = $s_attributes->{"s_id"}->struc2cpos($sid);
 
     if ( $querymode eq "collo-word" ) {
-        return encode_json( { "s_id" => $s_attributes->{"s_id"}->struc2str($sid), "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid), "tokens" => [ &to_string( $p_attributes, $result, "word" ) ] } );
+        return encode_json(
+            {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
+                "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "tokens"        => [
+                    map {
+                        [ map { $p_attributes->{"word"}->cpos2str($_) } @$_ ]
+                        } @$result
+                ]
+            }
+        );
     }
     elsif ( $querymode eq "collo-lemma" ) {
-        return encode_json( { "s_id" => $s_attributes->{"s_id"}->struc2str($sid), "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid), "tokens" => [ &to_string( $p_attributes, $result, "lemma" ) ] } );
+        return encode_json(
+            {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
+                "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "tokens"        => [
+                    map {
+                        [ map { $p_attributes->{"lemma"}->cpos2str($_) } @$_ ]
+                        } @$result
+                ]
+            }
+        );
     }
     elsif ( $querymode eq "sentence" ) {
-        return encode_json( { "s_id" => $s_attributes->{"s_id"}->struc2str($sid), "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid), "sentence" => [ $p_attributes->{"word"}->cpos2str( $start .. $end ) ], "tokens" => [ &to_relative_position( $result, $start ) ] } );
+        return encode_json(
+            {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
+                "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "sentence"      => [ $p_attributes->{"word"}->cpos2str( $start .. $end ) ],
+                "tokens"        => [
+                    map {
+                        [ map { $_ - $start } @$_ ]
+                        } @$result
+                ]
+            }
+        );
     }
 }
 
 sub check_frequencies {
-    my ( $cqp, $query, $frequencies, $case_sensitivity, $p_attributes ) = @_;
+    my ( $cqp, $query, $case_sensitivity, $p_attributes ) = @_;
+    my %frequencies;
     for ( my $i = 0; $i <= $#$query; $i++ ) {
         my $token = $query->[$i]->[$i];
 
@@ -81,23 +106,21 @@ sub check_frequencies {
         #my $querystring = &build_query($query, $i, $case_sensitivity); # inefficient
         if ($querystring) {
             $cqp->exec("A = [$querystring]");
-            ( $frequencies->{$i} ) = $cqp->exec("size A");
+            ( $frequencies{$i} ) = $cqp->exec("size A");
         }
         else {
-            $frequencies->{$i} = $p_attributes->{"word"}->max_cpos;
+            $frequencies{$i} = $p_attributes->{"word"}->max_cpos;
 
             #die("It seems that the input graph is not connected. Is that right?\n");
         }
     }
+    return %frequencies;
 }
 
 sub execute_query {
-    my ( $cqp, $s_id, $query, $ids, $corpus_order, $freq_alignment, $inverse_alignment, $case_sensitivity, %frequencies ) = @_;
-    foreach my $i ( sort { $frequencies{$a} <=> $frequencies{$b} } keys %frequencies ) {
-        push( @$ids, {} );
-        @$corpus_order = ();
-        $freq_alignment->[$i] = $#$ids;
-        push( @$inverse_alignment, $i );
+    my ( $cqp, $s_id, $query, $ids_ref, $corpus_order_ref, $case_sensitivity, $frequencies_ref ) = @_;
+    foreach my $i ( sort { $frequencies_ref->{$a} <=> $frequencies_ref->{$b} } keys %{$frequencies_ref} ) {
+        @$corpus_order_ref = ();
         my $querystring = &build_query( $query, $i, $case_sensitivity );
 
         #print $querystring, "\n";
@@ -105,12 +128,13 @@ sub execute_query {
         if ( ( $cqp->exec("size Last") )[0] > 0 ) {
             foreach my $match ( $cqp->exec("tabulate Last match") ) {
                 my $sid = $s_id->cpos2struc($match);
-                push( @$corpus_order, $sid ) unless ( defined( $ids->[$#$ids]->{$sid} ) );
-                push( @{ $ids->[$#$ids]->{$sid} }, $match );
+                if ( !defined $ids_ref->{$sid}->[$i] ) {
+                    push @$corpus_order_ref, $sid;
+                }
+                push @{ $ids_ref->{$sid}->[$i] }, $match;
             }
         }
 
-        #print scalar(keys %{$ids->[$#$ids]}), "\n";
         $cqp->exec("Last expand to s");
         $cqp->exec("Last");
     }
@@ -121,19 +145,17 @@ sub build_query {
     my $token = $query->[$i]->[$i];
     my @querystring;
 
-    #my $tokrestr = join( " & ", map( '(' . $_ . ' = "' . $token->{$_} . '"' . &ignore_case($_) . ")", keys %$token ) );
     my $tokrestr = join( " & ", map( &map_token_restrictions( $_, $token->{$_}, $case_sensitivity ), keys %$token ) );
     push( @querystring, $tokrestr ) if ($tokrestr);
 
-    #my $indeps = join( ' & ', map( '(indep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
     my $indeps = join( ' & ', map { '(' . join( ' | ', map( '(indep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) );
     $indeps .= ' & (ambiguity(indep) >= ' . scalar( grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($indeps);
     push( @querystring, $indeps ) if ($indeps);
 
-    #my $outdeps = join( ' & ', map( '(outdep contains "' . $_ . '\(.*")', grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) );
     my $outdeps = join( ' & ', map { '(' . join( ' | ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) );
     $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($outdeps);
     push( @querystring, $outdeps ) if ($outdeps);
+
     my $querystring = join( ' & ', @querystring );
     return $querystring;
 }
@@ -152,53 +174,6 @@ sub map_token_restrictions {
     }
 }
 
-sub match {
-    my ( $query, $p_attributes, $freq_alignment, $token, $cpos, $candidates, $sid, $used_up_positions ) = @_;
-    my @filter;
-    my %result;
-    my $indeps = $p_attributes->{"indep"}->cpos2str($cpos);
-    $indeps =~ s/^\|//;
-    $indeps =~ s/\|$//;
-    my @indeps = split( /\|/, $indeps );
-    my @rels;
-
-    foreach my $i ( 0 .. $#$query ) {
-        if ( $query->[$i]->[$token] ) {
-            $rels[$i] = $query->[$i]->[$token]->{"relation"};
-        }
-    }
-REL: for ( my $i = 0; $i <= $#rels; $i++ ) {
-        my $rel = $rels[$i];
-        next REL unless ( defined($rel) );
-        my $found = 0;
-        foreach my $indep (@indeps) {
-            if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)(?:&apos;)*,/ ) {
-                my $offset = $+{"offset"};
-                $offset = "+" . $offset unless ( substr( $offset, 0, 1 ) eq "-" );
-                push( @{ $filter[$i] }, eval "$cpos$offset" );
-                $found++;
-            }
-        }
-        return unless ($found);
-
-        # do a "uniq"
-        my %seen;
-        @{ $filter[$i] } = grep { !$seen{$_}++ } @{ $filter[$i] };
-    }
-    for ( my $i = 0; $i <= $#$candidates; $i++ ) {
-        next unless ( $filter[$i] );
-        $candidates->[$i] = &intersection( $candidates->[$i], $filter[$i] );
-        return unless ( @{ $candidates->[$i] } );
-    }
-    if ( $token < $#$query ) {
-        $token++;
-        return &match_recursive( $query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions );
-    }
-    else {
-        return 1;
-    }
-}
-
 sub intersection {
     my ( $array1, $array2 ) = @_;
     my %count = ();
@@ -212,82 +187,90 @@ sub intersection {
     return \@intersection;
 }
 
-sub remove_used_up_positions {
-    my ( $local_candidates, $used_up_positions ) = @_;
-    for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
-        my $foo = $local_candidates->[$i];
-        for ( my $j = 0; $j <= $#$foo; $j++ ) {
-
-            # remove corpus position at $local_candidates->[$i]->[$j]
-            # if the corpus position is in $used_up_positions and the
-            # node stored there is not the one represented by $i;
-            # i.e. corpus positions already in use cannot be used for
-            # another node
-            splice( @{ $local_candidates->[$i] }, $j, 1 ) if ( defined( $used_up_positions->{ $local_candidates->[$i]->[$j] } ) and $i != $used_up_positions->{ $local_candidates->[$i]->[$j] } );
-        }
-    }
-}
-
-sub to_string {
-    my ( $p_attributes, $result, $attribute ) = @_;
-    my @collection;
-    foreach my $query_number ( keys %$result ) {
-        foreach my $cpos ( keys %{ $result->{$query_number} } ) {
-            my $word = $p_attributes->{$attribute}->cpos2str($cpos);
-            if ( $result->{$query_number}->{$cpos} == 1 ) {
-
-                #push( @collection, "$query_number $word" );
-                push( @collection, [$word] );
-            }
-            else {
-                foreach my $deeper ( &to_string( $p_attributes, $result->{$query_number}->{$cpos}, $attribute ) ) {
-
-                    #push( @collection, "$query_number $word $deeper" );
-                    push( @collection, [ $word, @$deeper ] );
-                }
-            }
-        }
-    }
-    return @collection;
-}
-
-sub to_relative_position {
-    my ( $result, $start ) = @_;
-    my @collection;
-    foreach my $query_number ( keys %$result ) {
-        foreach my $cpos ( keys %{ $result->{$query_number} } ) {
-            if ( $result->{$query_number}->{$cpos} == 1 ) {
-                push( @collection, [ $cpos - $start ] );
-            }
-            else {
-                foreach my $deeper ( &to_relative_position( $result->{$query_number}->{$cpos}, $start ) ) {
-                    push( @collection, [ $cpos - $start, @$deeper ] );
-                }
-            }
-        }
-    }
-    return @collection;
-}
-
 sub ignore_case {
     return ( ( $_[0] eq "word" or $_[0] eq "lemma" ) and not $_[1] ) ? ' %c' : '';
 }
 
-sub match_recursive {
-    my ( $query, $p_attributes, $freq_alignment, $token, $candidates, $sid, $used_up_positions ) = @_;
-    my %result;
-    foreach my $cpos ( @{ $candidates->[$token] } ) {
-        my $local_candidates        = dclone($candidates);
-        my $local_used_up_positions = dclone($used_up_positions);
-        $local_candidates->[$token] = [$cpos];
-        $local_used_up_positions->{$cpos} = $token;
-        &remove_used_up_positions( $local_candidates, $local_used_up_positions );
-        my $rvalue = &match( $query, $p_attributes, $freq_alignment, $token, $cpos, $local_candidates, $sid, $local_used_up_positions );
-        if ($rvalue) {
-            $result{$token}->{$cpos} = $rvalue;
+sub match {
+    my ( $depth, $query, $p_attributes, $depth_to_token_ref, $candidates, $used_up_positions ) = @_;
+    my $token = $depth_to_token_ref->{$depth};
+    my $result;
+
+    # if matching has been successful, return matching corpus
+    # positions
+    if ( $depth > $#$query ) {
+        while ( my ( $cpos, $token ) = each %{$used_up_positions} ) {
+            $result->[$token] = $cpos;
+        }
+        return [$result];
+    }
+
+    # collect incoming dependency relations for token in query graph
+    my ( $number_of_incoming_rels, @query_incoming_rels );
+    foreach my $i ( 0 .. $#$query ) {
+        if ( $query->[$i]->[$token] ) {
+            $query_incoming_rels[$i] = $query->[$i]->[$token]->{"relation"};
         }
     }
-    return %result ? \%result : undef;
+    $number_of_incoming_rels = grep {defined} @query_incoming_rels;
+
+CPOS: foreach my $cpos ( @{ $candidates->[$token] } ) {
+        next CPOS if ( defined $used_up_positions->{$cpos} );
+
+        # mark corpus position as used, map it to $token
+        my $local_used_up_positions = dclone $used_up_positions;
+        $local_used_up_positions->{$cpos} = $token;
+        my $local_candidates;
+        for my $token ( 0 .. $#$candidates ) {
+            $local_candidates->[$token] = [ grep { $_ != $cpos } @{ $candidates->[$token] } ];
+        }
+        $local_candidates->[$token] = [$cpos];
+
+        # collect incoming dependency relations for corpus position
+        my ( $indeps, @indeps );
+        $indeps = $p_attributes->{"indep"}->cpos2str($cpos);
+        $indeps =~ s/^\|//;
+        $indeps =~ s/\|$//;
+        @indeps = split( /\|/, $indeps );
+        next CPOS if ( @indeps < $number_of_incoming_rels );
+
+        # collect corpus position of the start nodes of the incoming
+        # dependency relations
+        my @filter;
+        for ( my $i = 0; $i <= $#query_incoming_rels; $i++ ) {
+            my $rel = $query_incoming_rels[$i];
+            next unless ( defined($rel) );
+            my $found = 0;
+            foreach my $indep (@indeps) {
+                if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)(?:&apos;)*,/ ) {
+                    my $offset     = $+{"offset"};
+                    my $start_cpos = $cpos + $offset;
+                    push( @{ $filter[$i] }, $start_cpos );
+                    $found++;
+                }
+            }
+            next CPOS if ( $found == 0 );
+            @{ $filter[$i] } = uniq @{ $filter[$i] };
+        }
+
+        # intersect candidate corpus positions for connected nodes
+        # with those corpus positions that are actually connected to
+        # the current node
+        for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
+            next if ( !defined $filter[$i] );
+            $local_candidates->[$i] = &intersection( $local_candidates->[$i], $filter[$i] );
+            next CPOS if ( @{ $local_candidates->[$i] } == 0 );
+        }
+
+        # recursion
+        my $local_result = &match( $depth + 1, $query, $p_attributes, $depth_to_token_ref, $local_candidates, $local_used_up_positions );
+        if ( defined $local_result ) {
+            push @{$result}, @$local_result;
+        }
+    }
+
+    # not matching, return undef
+    return $result;
 }
 
 sub get_corpus_attributes {
@@ -303,7 +286,7 @@ sub get_corpus_attributes {
     $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
     $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
     $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
-    return (\%s_attributes, \%p_attributes);
+    return ( \%s_attributes, \%p_attributes );
 }
 
 1;
