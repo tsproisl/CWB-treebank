@@ -6,10 +6,14 @@ use strict;
 use Storable qw( dclone );
 use JSON;
 use Data::Dumper;
+use List::Util qw(sum);
 use List::MoreUtils qw( uniq );
+
+use Time::HiRes;
 
 sub match_graph {
     my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
+    my $json = new JSON;
     local $Data::Dumper::Indent = 0;
     local $Data::Dumper::Purity = 1;
     my $query = decode_json($queryref);
@@ -22,17 +26,23 @@ sub match_graph {
     $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://g;
     $local_queryref =~ s/"\.[*+?]"//g;
     if ( $local_queryref =~ m/^[][}{, ]*$/ ) {
-        print $cache_handle Data::Dumper->Dump( [ [ "", [] ] ], ["dump"] ), "\n";
+	print $cache_handle $json->encode( [ "", [] ] ) . "\n";
         return;
     }
 
+    my $t0 = [ Time::HiRes::gettimeofday() ];
+
     # check frequencies
     my %frequencies = &check_frequencies( $cqp, $query, $case_sensitivity, $p_attributes );
+
+    my $t1 = [ Time::HiRes::gettimeofday() ];
 
     # execute query
     my %ids;
     my @corpus_order;
     &execute_query( $cqp, $s_attributes->{"s_id"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
+
+    my $t2 = [ Time::HiRes::gettimeofday() ];
 
     # match
     foreach my $sid (@corpus_order) {
@@ -42,10 +52,12 @@ sub match_graph {
         my %depth_to_token = map { $_ => $_ } ( 0 .. $#$query );
         my $result         = &match( $depth, $query, $p_attributes, \%depth_to_token, $candidates_ref, \%used_up_positions );
         if ( defined $result ) {
-            print $cache_handle Data::Dumper->Dump( [ [ $sid, $result ] ], ["dump"] ) . "\n";
+            print $cache_handle $json->encode( [ $sid, $result ] ) . "\n";
             print $output &transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n";
         }
     }
+    my $t3 = [ Time::HiRes::gettimeofday() ];
+    return Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ), Time::HiRes::tv_interval( $t2, $t3 );
 }
 
 sub transform_output {
@@ -122,8 +134,8 @@ sub execute_query {
     foreach my $i ( sort { $frequencies_ref->{$a} <=> $frequencies_ref->{$b} } keys %{$frequencies_ref} ) {
         @$corpus_order_ref = ();
         my $querystring = &build_query( $query, $i, $case_sensitivity );
-
-        #print $querystring, "\n";
+        # print $querystring, "\n";
+	# my $t0 = [ Time::HiRes::gettimeofday() ];
         $cqp->exec("[$querystring]");
         if ( ( $cqp->exec("size Last") )[0] > 0 ) {
             foreach my $match ( $cqp->exec("tabulate Last match") ) {
@@ -134,7 +146,8 @@ sub execute_query {
                 push @{ $ids_ref->{$sid}->[$i] }, $match;
             }
         }
-
+	# my $t1 = [ Time::HiRes::gettimeofday() ];
+	# print Time::HiRes::tv_interval($t0, $t1), "\n";
         $cqp->exec("Last expand to s");
         $cqp->exec("Last");
     }

@@ -8,6 +8,7 @@ use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Fcntl qw(:flock);
 use threads;
 use threads::shared;
+use JSON;
 use DBI;
 use File::Spec;
 use Time::HiRes;
@@ -38,9 +39,9 @@ POSIX::setuid( $config{"uid"} );
 }
 
 # redirect STDERR, STDIN, STDOUT
-#open( STDERR, ">>", $config{"logfile"} )    or die("Can't reopen STDERR: $!");
-#open( STDIN,  "<",  File::Spec->devnull() ) or die("Can't reopen STDIN: $!");
-#open( STDOUT, ">",  File::Spec->devnull() ) or die("Can't reopen STDOUT: $!");
+open( STDERR, ">>", $config{"logfile"} )    or die("Can't reopen STDERR: $!");
+open( STDIN,  "<",  File::Spec->devnull() ) or die("Can't reopen STDIN: $!");
+open( STDOUT, ">",  File::Spec->devnull() ) or die("Can't reopen STDOUT: $!");
 
 # dissociate from the controlling terminal that started us and stop
 # being part of whatever process group we had been a member of
@@ -120,6 +121,7 @@ while ( not $time_to_die ) {
 sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
+    my $json = new JSON;
     my ( $cqp, %corpus_handles, $dbh );
     $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub { &log("Caught signal"); $socket->close(); undef($cqp); undef( $corpus_handles{$_} ) foreach ( keys %corpus_handles ); undef($dbh); exit; };
     $cqp = new CWB::CQP;
@@ -196,6 +198,7 @@ sub handle_connection {
             $select_qid->execute( $corpus, $case_sensitivity, $queryref );
             my $qids = $select_qid->fetchall_arrayref;
             my $qid;
+	    my $query_times = "";
 
 	    # query is not cached
             if ( @$qids == 0 ) {
@@ -208,7 +211,8 @@ sub handle_connection {
                 flock( $cache_handle, LOCK_EX );
                 $dbh->do(qq{COMMIT});
                 $t1 = [&Time::HiRes::gettimeofday];
-                &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
+                #&CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
+                $query_times = sprintf " (%s + %s + %s)", &CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
                 flock( $cache_handle, LOCK_UN );
                 close($cache_handle) or die( "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $!" );
             }
@@ -226,9 +230,8 @@ sub handle_connection {
 
                 while ( my $line = <$cache_handle> ) {
                     chomp($line);
-                    my $dump;
-                    eval $line;
-                    my ( $sid, $result ) = @$dump;
+		    my $stored = $json->decode($line);
+                    my ( $sid, $result ) = @$stored;
                     print $output &CWB::treebank::transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n";
                 }
                 flock( $cache_handle, LOCK_UN );
@@ -237,7 +240,7 @@ sub handle_connection {
 
             print $output "finito\n";
             $t2 = [&Time::HiRes::gettimeofday];
-            &log( sprintf( "answered %s in %.3fs (%s, %.3f + %.3f)", $queryid, Time::HiRes::tv_interval( $t0, $t2 ), $cached ? "cached" : "not cached", Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ) ) );
+            &log( sprintf( "answered %s in %.3fs (%s, %.3f + %.3f%s)", $queryid, Time::HiRes::tv_interval( $t0, $t2 ), $cached ? "cached" : "not cached", Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ), $query_times ) );
             next;
         }
 

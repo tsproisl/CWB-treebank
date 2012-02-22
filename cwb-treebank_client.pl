@@ -71,6 +71,6 @@ sub match_graph {
     print $socket $in_json, "\n";
     while ( my $out_json = <$socket> ) {
         last if ( $out_json eq "finito\n" );
-        print decode( "utf8", &beautify_json($out_json) );
+        #print decode( "utf8", &beautify_json($out_json) );
     }
 }
