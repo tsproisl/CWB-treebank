@@ -226,6 +226,15 @@ sub match {
     }
     $number_of_incoming_rels = grep {defined} @query_incoming_rels;
 
+    # collect outgoing dependency relations for query_node in query graph
+    my ( $number_of_outgoing_rels, @query_outgoing_rels );
+    foreach my $i ( 0 .. $#$query ) {
+        if ( $query->[$query_node]->[$i] ) {
+            $query_outgoing_rels[$i] = $query->[$query_node]->[$i]->{"relation"};
+        }
+    }
+    $number_of_outgoing_rels = grep {defined} @query_outgoing_rels;
+
 CPOS: foreach my $cpos ( @{ $candidates->[$query_node] } ) {
 
         # store corpus position for current query_node, remove it from
@@ -244,31 +253,51 @@ CPOS: foreach my $cpos ( @{ $candidates->[$query_node] } ) {
         @indeps = split( /\|/, $indeps );
         next CPOS if ( @indeps < $number_of_incoming_rels );
 
+        # collect outgoing dependency relations for corpus position
+        my ( $outdeps, @outdeps );
+        $outdeps = $p_attributes->{"outdep"}->cpos2str($cpos);
+        $outdeps =~ s/^\|//;
+        $outdeps =~ s/\|$//;
+        @outdeps = split( /\|/, $outdeps );
+        next CPOS if ( @outdeps < $number_of_outgoing_rels );
+
         # collect corpus position of the start nodes of the incoming
         # dependency relations
-        my @filter;
+        my @corpus_candidates;
         for ( my $i = 0; $i <= $#query_incoming_rels; $i++ ) {
             my $rel = $query_incoming_rels[$i];
             next unless ( defined($rel) );
-            my $found = 0;
             foreach my $indep (@indeps) {
                 if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)(?:&apos;)*,/ ) {
                     my $offset     = $+{"offset"};
                     my $start_cpos = $cpos + $offset;
-                    push( @{ $filter[$i] }, $start_cpos );
-                    $found++;
+                    push( @{ $corpus_candidates[$i] }, $start_cpos );
                 }
             }
-            next CPOS if ( $found == 0 );
-            @{ $filter[$i] } = uniq @{ $filter[$i] };
+            @{ $corpus_candidates[$i] } = uniq @{ $corpus_candidates[$i] };
+        }
+
+        # collect corpus position of the start nodes of the outgoing
+        # dependency relations
+        for ( my $i = 0; $i <= $#query_outgoing_rels; $i++ ) {
+            my $rel = $query_outgoing_rels[$i];
+            next unless ( defined($rel) );
+            foreach my $outdep (@outdeps) {
+                if ( $outdep =~ m/^(?<relation>$rel)\(0(?:&apos;)*,(?<offset>-?\d+)(?:&apos;)*\)$/ ) {
+                    my $offset     = $+{"offset"};
+                    my $start_cpos = $cpos + $offset;
+                    push( @{ $corpus_candidates[$i] }, $start_cpos );
+                }
+            }
+            @{ $corpus_candidates[$i] } = uniq @{ $corpus_candidates[$i] };
         }
 
         # intersect candidate corpus positions for connected nodes
         # with those corpus positions that are actually connected to
         # the current node
         for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
-            next if ( !defined $filter[$i] );
-            $local_candidates->[$i] = &intersection( $local_candidates->[$i], $filter[$i] );
+            next if ( !defined $corpus_candidates[$i] );
+            $local_candidates->[$i] = &intersection( $local_candidates->[$i], $corpus_candidates[$i] );
             next CPOS if ( @{ $local_candidates->[$i] } == 0 );
         }
 
