@@ -3,63 +3,66 @@ package CWB::treebank;
 use warnings;
 use strict;
 
-use Storable qw( dclone );
-use JSON;
-use Data::Dumper;
+# roadmap
+# 1.0: heuristics for frequencies of query nodes
+# 2.0: restrictions on order of nodes
+use version; our $VERSION = qv('0.9.0');
+
+use English qw( -no_match_vars );
 use List::Util qw(sum);
 use List::MoreUtils qw( uniq );
-
+use Storable qw( dclone );
 use Time::HiRes;
+
+use JSON;
 
 sub match_graph {
     my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
-    my $json = new JSON;
-    local $Data::Dumper::Indent = 0;
-    local $Data::Dumper::Purity = 1;
+    my $json  = JSON->new();
     my $query = decode_json($queryref);
-    my @result;
     $cqp->exec($corpus);
-    my ( $s_attributes, $p_attributes ) = &get_corpus_attributes($corpus_handle);
+    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
 
     # cancel if there are no restrictions
     my $local_queryref = $queryref;
-    $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://g;
-    $local_queryref =~ s/"\.[*+?]"//g;
-    if ( $local_queryref =~ m/^[][}{, ]*$/ ) {
-        print $cache_handle $json->encode( [ "", [] ] ) . "\n";
+    $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://gxms;
+    $local_queryref =~ s/"[.][*+?]"//gxms;
+    if ( $local_queryref =~ m/^[][}{, ]*$/xms ) {
+        print {$cache_handle} $json->encode( [ q{}, [] ] ) . "\n" or croak "Can't print to cache: $OS_ERROR";
         return;
     }
 
     my $t0 = [ Time::HiRes::gettimeofday() ];
 
     # check frequencies
-    my %frequencies = &check_frequencies( $cqp, $query, $case_sensitivity, $p_attributes );
+    my %frequencies = check_frequencies( $cqp, $query, $case_sensitivity, $p_attributes );
 
     my $t1 = [ Time::HiRes::gettimeofday() ];
 
     # execute query
     my %ids;
     my @corpus_order;
-    &execute_query( $cqp, $s_attributes->{"s_id"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
+    execute_query( $cqp, $s_attributes->{"s_id"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
 
     my $t2 = [ Time::HiRes::gettimeofday() ];
 
     # match
     foreach my $sid (@corpus_order) {
-        my $candidates_ref      = dclone $ids{$sid};
-        my $depth               = 0;
+        my $candidates_ref = dclone $ids{$sid};
+        my $depth          = 0;
+
         #my %depth_to_query_node = map { $_ => $_ } ( 0 .. $#$query );
-	my $count_relations = sub {
-	    my $n = shift;
-	    my $relations = scalar grep {defined $query->[$_]->[$n]} ( 0 .. $#$query );
-	    $relations += scalar grep {defined $query->[$n]->[$_]} ( 0 .. $#$query );
-	};
-	my @sorted_indexes = sort {$count_relations->($b) <=> $count_relations->($a)} ( 0 .. $#$query );
-        my %depth_to_query_node = map { $_ => $sorted_indexes[$_] } ( 0 .. $#$query );
-        my $result              = &match( $depth, $query, $p_attributes, \%depth_to_query_node, $candidates_ref );
+        my $count_relations = sub {
+            my $n = shift;
+            my $relations = scalar grep { defined $query->[$_]->[$n] } ( 0 .. $#{$query} );
+            $relations += scalar grep { defined $query->[$n]->[$_] } ( 0 .. $#{$query} );
+        };
+        my @sorted_indexes = reverse sort { $count_relations->($a) <=> $count_relations->($b) } ( 0 .. $#{$query} );
+        my %depth_to_query_node = map { $_ => $sorted_indexes[$_] } ( 0 .. $#{$query} );
+        my $result = match( $depth, $query, $p_attributes, \%depth_to_query_node, $candidates_ref );
         if ( defined $result ) {
-            print $cache_handle $json->encode( [ $sid, $result ] ) . "\n";
-            print $output &transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n";
+            print {$cache_handle} $json->encode( [ $sid, $result ] ) . "\n" or croak "Can't print to cache: $OS_ERROR";
+            print {$output} transform_output( $s_attributes, $p_attributes, $querymode, $sid, $result ) . "\n" or croak "Can't print to socket: $OS_ERROR";
         }
     }
     my $t3 = [ Time::HiRes::gettimeofday() ];
@@ -68,7 +71,7 @@ sub match_graph {
 
 sub transform_output {
     my ( $s_attributes, $p_attributes, $querymode, $sid, $result ) = @_;
-    if ( $sid eq "" and @$result == 0 ) {
+    if ( $sid eq q{} and @{$result} == 0 ) {
         return encode_json( {} );
     }
     my ( $start, $end ) = $s_attributes->{"s_id"}->struc2cpos($sid);
@@ -79,8 +82,8 @@ sub transform_output {
                 "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
                 "tokens"        => [
                     map {
-                        [ map { $p_attributes->{"word"}->cpos2str($_) } @$_ ]
-                        } @$result
+                        [ map { $p_attributes->{"word"}->cpos2str($_) } @{$_} ]
+                        } @{$result}
                 ]
             }
         );
@@ -91,8 +94,8 @@ sub transform_output {
                 "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
                 "tokens"        => [
                     map {
-                        [ map { $p_attributes->{"lemma"}->cpos2str($_) } @$_ ]
-                        } @$result
+                        [ map { $p_attributes->{"lemma"}->cpos2str($_) } @{$_} ]
+                        } @{$result}
                 ]
             }
         );
@@ -104,8 +107,8 @@ sub transform_output {
                 "sentence"      => [ $p_attributes->{"word"}->cpos2str( $start .. $end ) ],
                 "tokens"        => [
                     map {
-                        [ map { $_ - $start } @$_ ]
-                        } @$result
+                        [ map { $_ - $start } @{$_} ]
+                        } @{$result}
                 ]
             }
         );
@@ -115,11 +118,11 @@ sub transform_output {
 sub check_frequencies {
     my ( $cqp, $query, $case_sensitivity, $p_attributes ) = @_;
     my %frequencies;
-    for ( my $i = 0; $i <= $#$query; $i++ ) {
+    foreach my $i ( 0 .. $#{$query} ) {
         my $token = $query->[$i]->[$i];
 
         # Note: Try out adding indeps and outdeps information
-        my $querystring = join( " & ", map( &map_token_restrictions( $_, $token->{$_}, $case_sensitivity ), keys %$token ) );
+        my $querystring = join ' & ', map { map_token_restrictions( $_, $token->{$_}, $case_sensitivity ) } keys %{$token};
 
         #my $querystring = &build_query($query, $i, $case_sensitivity); # inefficient
         if ($querystring) {
@@ -138,8 +141,8 @@ sub check_frequencies {
 sub execute_query {
     my ( $cqp, $s_id, $query, $ids_ref, $corpus_order_ref, $case_sensitivity, $frequencies_ref ) = @_;
     foreach my $i ( sort { $frequencies_ref->{$a} <=> $frequencies_ref->{$b} } keys %{$frequencies_ref} ) {
-        @$corpus_order_ref = ();
-        my $querystring = &build_query( $query, $i, $case_sensitivity );
+        @{$corpus_order_ref} = ();
+        my $querystring = build_query( $query, $i, $case_sensitivity );
 
         # print $querystring, "\n";
         # my $t0 = [ Time::HiRes::gettimeofday() ];
@@ -148,7 +151,7 @@ sub execute_query {
             foreach my $match ( $cqp->exec("tabulate Last match") ) {
                 my $sid = $s_id->cpos2struc($match);
                 if ( !defined $ids_ref->{$sid}->[$i] ) {
-                    push @$corpus_order_ref, $sid;
+                    push @{$corpus_order_ref}, $sid;
                 }
                 push @{ $ids_ref->{$sid}->[$i] }, $match;
             }
@@ -159,6 +162,7 @@ sub execute_query {
         $cqp->exec("Last expand to s");
         $cqp->exec("Last");
     }
+    return;
 }
 
 sub build_query {
@@ -166,14 +170,19 @@ sub build_query {
     my $token = $query->[$i]->[$i];
     my @querystring;
 
-    my $tokrestr = join( " & ", map( &map_token_restrictions( $_, $token->{$_}, $case_sensitivity ), keys %$token ) );
-    push( @querystring, $tokrestr ) if ($tokrestr);
+    my $tokrestr = join ' & ', map { map_token_restrictions( $_, $token->{$_}, $case_sensitivity ) } keys %{$token};
+    push @querystring, $tokrestr if ($tokrestr);
 
-    my $indeps = join( ' & ', map { '(' . join( ' | ', map( '(indep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) );
-    $indeps .= ' & (ambiguity(indep) >= ' . scalar( grep( defined, map( $query->[$_]->[$i]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($indeps);
-    push( @querystring, $indeps ) if ($indeps);
+    my $indeps = join ' & ', map {
+        '(' . join ' | ', map { '(indep contains "' . $_ . '\(.*")' }
+            split( /[|]/xms, $_ ) . ')'
+        }
+        grep {defined}
+        map { $query->[$_]->[$i]->{"relation"} } ( 0 .. $#{$query} );
+    $indeps .= ' & (ambiguity(indep) >= ' . scalar grep {defined} map { $query->[$_]->[$i]->{"relation"} } ( 0 .. $#{$query} ) . ')' if ($indeps);
+    push @querystring, $indeps if ($indeps);
 
-    my $outdeps = join( ' & ', map { '(' . join( ' | ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) );
+    my $outdeps = join ' & ', map { '(' . join( ' | ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) );
     $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($outdeps);
     push( @querystring, $outdeps ) if ($outdeps);
 
