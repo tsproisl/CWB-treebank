@@ -48,7 +48,14 @@ sub match_graph {
     foreach my $sid (@corpus_order) {
         my $candidates_ref      = dclone $ids{$sid};
         my $depth               = 0;
-        my %depth_to_query_node = map { $_ => $_ } ( 0 .. $#$query );
+        #my %depth_to_query_node = map { $_ => $_ } ( 0 .. $#$query );
+	my $count_relations = sub {
+	    my $n = shift;
+	    my $relations = scalar grep {defined $query->[$_]->[$n]} ( 0 .. $#$query );
+	    $relations += scalar grep {defined $query->[$n]->[$_]} ( 0 .. $#$query );
+	};
+	my @sorted_indexes = sort {$count_relations->($b) <=> $count_relations->($a)} ( 0 .. $#$query );
+        my %depth_to_query_node = map { $_ => $sorted_indexes[$_] } ( 0 .. $#$query );
         my $result              = &match( $depth, $query, $p_attributes, \%depth_to_query_node, $candidates_ref );
         if ( defined $result ) {
             print $cache_handle $json->encode( [ $sid, $result ] ) . "\n";
