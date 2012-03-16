@@ -8,6 +8,7 @@ use strict;
 # 2.0: restrictions on order of nodes
 use version; our $VERSION = qv('0.9.0');
 
+use Carp;
 use English qw( -no_match_vars );
 use List::Util qw(sum);
 use List::MoreUtils qw( uniq );
@@ -174,33 +175,37 @@ sub build_query {
     push @querystring, $tokrestr if ($tokrestr);
 
     my $indeps = join ' & ', map {
-        '(' . join ' | ', map { '(indep contains "' . $_ . '\(.*")' }
-            split( /[|]/xms, $_ ) . ')'
+        '(' . join( ' | ', map { '(indep contains "' . $_ . '\(.*")' }
+            split /[|]/xms, $_ ) . ')'
         }
         grep {defined}
-        map { $query->[$_]->[$i]->{"relation"} } ( 0 .. $#{$query} );
-    $indeps .= ' & (ambiguity(indep) >= ' . scalar grep {defined} map { $query->[$_]->[$i]->{"relation"} } ( 0 .. $#{$query} ) . ')' if ($indeps);
+        map { $query->[$_]->[$i]->{'relation'} } ( 0 .. $#{$query} );
+    $indeps .= ' & (ambiguity(indep) >= ' . scalar( grep {defined} map { $query->[$_]->[$i]->{'relation'} } ( 0 .. $#{$query} ) ) . ')' if ($indeps);
     push @querystring, $indeps if ($indeps);
 
-    my $outdeps = join ' & ', map { '(' . join( ' | ', map( '(outdep contains "' . $_ . '\(.*")', split( /\|/, $_ ) ) ) . ')' } grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) );
-    $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep( defined, map( $query->[$i]->[$_]->{"relation"}, ( 0 .. $#$query ) ) ) ) . ')' if ($outdeps);
-    push( @querystring, $outdeps ) if ($outdeps);
+    my $outdeps = join ' & ', map {
+        '(' . join( ' | ', map { '(outdep contains "' . $_ . '\(.*")' }
+            split /[|]/xms, $_ ) . ')'
+        } grep {defined}
+        map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} );
+    $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep {defined} map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} ) ) . ')' if ($outdeps);
+    push @querystring, $outdeps if ($outdeps);
 
-    my $querystring = join( ' & ', @querystring );
+    my $querystring = join ' & ', @querystring;
     return $querystring;
 }
 
 sub map_token_restrictions {
     my ( $key, $value, $case_sensitivity ) = @_;
-    if ( $key =~ m/^not_((in|out)dep)$/ ) {
-        return join( ' & ', map( '(' . $1 . ' not contains "' . $_ . '\(.*")', @$value ) );
+    if ( $key =~ m/^not_((?:in|out)dep)$/xms ) {
+        return join ' & ', map { '(' . $1 . ' not contains "' . $_ . '\(.*")' } @{$value};
     }
     elsif ( substr( $key, 0, 4 ) eq "not_" ) {
-        $key = substr( $key, 4 );
-        return '(' . $key . ' != "' . $value . '"' . &ignore_case( $key, $case_sensitivity ) . ')';
+        $key = substr $key, 4;
+        return qq{($key != "$value"} . ignore_case( $key, $case_sensitivity ) . ')';
     }
     else {
-        return '(' . $key . ' = "' . $value . '"' . &ignore_case( $key, $case_sensitivity ) . ')';
+        return qq{($key = "$value"} . ignore_case( $key, $case_sensitivity ) . ')';
     }
 }
 
@@ -208,17 +213,18 @@ sub intersection {
     my ( $array1, $array2 ) = @_;
     my %count = ();
     my @intersection;
-    foreach my $element ( @$array1, @$array2 ) {
+    foreach my $element ( @{$array1}, @{$array2} ) {
         $count{$element}++;
     }
     foreach my $element ( keys %count ) {
-        push( @intersection, $element ) if ( $count{$element} > 1 );
+        push @intersection, $element if ( $count{$element} > 1 );
     }
     return \@intersection;
 }
 
 sub ignore_case {
-    return ( ( $_[0] eq "word" or $_[0] eq "lemma" ) and not $_[1] ) ? ' %c' : '';
+    my ( $key, $case_sensitivity ) = @_;
+    return ( ( $key eq "word" or $key eq "lemma" ) and not $case_sensitivity ) ? ' %c' : q{};
 }
 
 sub match {
@@ -228,14 +234,14 @@ sub match {
 
     # if matching has been successful, return matching corpus
     # positions
-    if ( $depth > $#$query ) {
-        @$candidates = map { $_->[0] } @$candidates;
+    if ( $depth > $#{$query} ) {
+        @{$candidates} = map { $_->[0] } @{$candidates};
         return [$candidates];
     }
 
     # collect incoming dependency relations for query_node in query graph
     my ( $number_of_incoming_rels, @query_incoming_rels );
-    foreach my $i ( 0 .. $#$query ) {
+    foreach my $i ( 0 .. $#{$query} ) {
         if ( $query->[$i]->[$query_node] ) {
             $query_incoming_rels[$i] = $query->[$i]->[$query_node]->{"relation"};
         }
@@ -244,19 +250,20 @@ sub match {
 
     # collect outgoing dependency relations for query_node in query graph
     my ( $number_of_outgoing_rels, @query_outgoing_rels );
-    foreach my $i ( 0 .. $#$query ) {
+    foreach my $i ( 0 .. $#{$query} ) {
         if ( $query->[$query_node]->[$i] ) {
             $query_outgoing_rels[$i] = $query->[$query_node]->[$i]->{"relation"};
         }
     }
     $number_of_outgoing_rels = grep {defined} @query_outgoing_rels;
 
-CPOS: foreach my $cpos ( @{ $candidates->[$query_node] } ) {
+  CPOS:
+    foreach my $cpos ( @{ $candidates->[$query_node] } ) {
 
         # store corpus position for current query_node, remove it from
         # other nodes
         my $local_candidates;
-        for my $query_node ( 0 .. $#$candidates ) {
+        for my $query_node ( 0 .. $#{$candidates} ) {
             $local_candidates->[$query_node] = [ grep { $_ != $cpos } @{ $candidates->[$query_node] } ];
         }
         $local_candidates->[$query_node] = [$cpos];
@@ -264,30 +271,30 @@ CPOS: foreach my $cpos ( @{ $candidates->[$query_node] } ) {
         # collect incoming dependency relations for corpus position
         my ( $indeps, @indeps );
         $indeps = $p_attributes->{"indep"}->cpos2str($cpos);
-        $indeps =~ s/^\|//;
-        $indeps =~ s/\|$//;
-        @indeps = split( /\|/, $indeps );
+        $indeps =~ s/^[|]//xms;
+        $indeps =~ s/[|]$//xms;
+        @indeps = split /[|]/xms, $indeps;
         next CPOS if ( @indeps < $number_of_incoming_rels );
 
         # collect outgoing dependency relations for corpus position
         my ( $outdeps, @outdeps );
         $outdeps = $p_attributes->{"outdep"}->cpos2str($cpos);
-        $outdeps =~ s/^\|//;
-        $outdeps =~ s/\|$//;
-        @outdeps = split( /\|/, $outdeps );
+        $outdeps =~ s/^[|]//xms;
+        $outdeps =~ s/[|]$//xms;
+        @outdeps = split /[|]/xms, $outdeps;
         next CPOS if ( @outdeps < $number_of_outgoing_rels );
 
         # collect corpus position of the start nodes of the incoming
         # dependency relations
         my @corpus_candidates;
-        for ( my $i = 0; $i <= $#query_incoming_rels; $i++ ) {
+        foreach my $i ( 0 .. $#query_incoming_rels ) {
             my $rel = $query_incoming_rels[$i];
-            next unless ( defined($rel) );
+            next unless ( defined $rel );
             foreach my $indep (@indeps) {
-                if ( $indep =~ m/^(?<relation>$rel)\((?<offset>-?\d+)(?:&apos;)*,/ ) {
-                    my $offset     = $+{"offset"};
+                if ( $indep =~ m/^ (?<relation>$rel) [(] (?<offset>-?\d+) (?:&apos;)* ,/xms ) {
+                    my $offset     = $LAST_PAREN_MATCH{"offset"};
                     my $start_cpos = $cpos + $offset;
-                    push( @{ $corpus_candidates[$i] }, $start_cpos );
+                    push @{ $corpus_candidates[$i] }, $start_cpos;
                 }
             }
             @{ $corpus_candidates[$i] } = uniq @{ $corpus_candidates[$i] };
@@ -295,14 +302,14 @@ CPOS: foreach my $cpos ( @{ $candidates->[$query_node] } ) {
 
         # collect corpus position of the start nodes of the outgoing
         # dependency relations
-        for ( my $i = 0; $i <= $#query_outgoing_rels; $i++ ) {
+        foreach my $i ( 0 .. $#query_outgoing_rels ) {
             my $rel = $query_outgoing_rels[$i];
-            next unless ( defined($rel) );
+            next unless ( defined $rel );
             foreach my $outdep (@outdeps) {
-                if ( $outdep =~ m/^(?<relation>$rel)\(0(?:&apos;)*,(?<offset>-?\d+)(?:&apos;)*\)$/ ) {
-                    my $offset     = $+{"offset"};
+                if ( $outdep =~ m/^ (?<relation>$rel) [(]0 (?:&apos;)* , (?<offset>-?\d+) (?:&apos;)* [)] $/xms ) {
+                    my $offset     = $LAST_PAREN_MATCH{"offset"};
                     my $start_cpos = $cpos + $offset;
-                    push( @{ $corpus_candidates[$i] }, $start_cpos );
+                    push @{ $corpus_candidates[$i] }, $start_cpos;
                 }
             }
             @{ $corpus_candidates[$i] } = uniq @{ $corpus_candidates[$i] };
@@ -311,16 +318,16 @@ CPOS: foreach my $cpos ( @{ $candidates->[$query_node] } ) {
         # intersect candidate corpus positions for connected nodes
         # with those corpus positions that are actually connected to
         # the current node
-        for ( my $i = 0; $i <= $#$local_candidates; $i++ ) {
+        foreach my $i ( 0 .. $#{$local_candidates} ) {
             next if ( !defined $corpus_candidates[$i] );
-            $local_candidates->[$i] = &intersection( $local_candidates->[$i], $corpus_candidates[$i] );
+            $local_candidates->[$i] = intersection( $local_candidates->[$i], $corpus_candidates[$i] );
             next CPOS if ( @{ $local_candidates->[$i] } == 0 );
         }
 
         # recursion
-        my $local_result = &match( $depth + 1, $query, $p_attributes, $depth_to_query_node_ref, $local_candidates );
+        my $local_result = match( $depth + 1, $query, $p_attributes, $depth_to_query_node_ref, $local_candidates );
         if ( defined $local_result ) {
-            push @{$result}, @$local_result;
+            push @{$result}, @{$local_result};
         }
     }
 
