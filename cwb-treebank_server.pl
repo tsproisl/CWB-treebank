@@ -180,7 +180,7 @@ sub handle_connection {
         }
 
         # Switch case-sensitivity
-        if ( $queryref =~ /^case-sensitivity (yes|no)$/xms ) {
+        if ( $queryref =~ /^case-sensitivity[ ](yes|no)$/xms ) {
             if ( $1 eq "yes" ) {
                 $case_sensitivity = 1;
                 log_message("Switched on case-sensitivity");
