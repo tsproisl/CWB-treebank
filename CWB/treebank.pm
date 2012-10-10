@@ -43,7 +43,7 @@ sub match_graph {
     # execute query
     my %ids;
     my @corpus_order;
-    execute_query( $cqp, $s_attributes->{"s_id"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
+    execute_query( $cqp, $s_attributes->{"s_id"}, $s_attributes->{"s_ignore"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
 
     my $t2 = [ Time::HiRes::gettimeofday() ];
 
@@ -140,7 +140,7 @@ sub check_frequencies {
 }
 
 sub execute_query {
-    my ( $cqp, $s_id, $query, $ids_ref, $corpus_order_ref, $case_sensitivity, $frequencies_ref ) = @_;
+    my ( $cqp, $s_id, $s_ignore, $query, $ids_ref, $corpus_order_ref, $case_sensitivity, $frequencies_ref ) = @_;
     foreach my $i ( sort { $frequencies_ref->{$a} <=> $frequencies_ref->{$b} } keys %{$frequencies_ref} ) {
         @{$corpus_order_ref} = ();
         my $querystring = build_query( $query, $i, $case_sensitivity );
@@ -150,6 +150,7 @@ sub execute_query {
         $cqp->exec("[$querystring]");
         if ( ( $cqp->exec("size Last") )[0] > 0 ) {
             foreach my $match ( $cqp->exec("tabulate Last match") ) {
+                next if ( defined $s_ignore && substr( $s_ignore->cpos2str($match), 0, 3 ) eq 'yes' );
                 my $sid = $s_id->cpos2struc($match);
                 if ( !defined $ids_ref->{$sid}->[$i] ) {
                     push @{$corpus_order_ref}, $sid;
@@ -175,8 +176,12 @@ sub build_query {
     push @querystring, $tokrestr if ($tokrestr);
 
     my $indeps = join ' & ', map {
-        '(' . join( ' | ', map { '(indep contains "' . $_ . '\(.*")' }
-            split /[|]/xms, $_ ) . ')'
+        '('
+            . join(
+            ' | ',              map { '(indep contains "' . $_ . '\(.*")' }
+                split /[|]/xms, $_
+            )
+            . ')'
         }
         grep {defined}
         map { $query->[$_]->[$i]->{'relation'} } ( 0 .. $#{$query} );
@@ -184,8 +189,12 @@ sub build_query {
     push @querystring, $indeps if ($indeps);
 
     my $outdeps = join ' & ', map {
-        '(' . join( ' | ', map { '(outdep contains "' . $_ . '\(.*")' }
-            split /[|]/xms, $_ ) . ')'
+        '('
+            . join(
+            ' | ',              map { '(outdep contains "' . $_ . '\(.*")' }
+                split /[|]/xms, $_
+            )
+            . ')'
         } grep {defined}
         map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} );
     $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep {defined} map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} ) ) . ')' if ($outdeps);
@@ -257,7 +266,7 @@ sub match {
     }
     $number_of_outgoing_rels = grep {defined} @query_outgoing_rels;
 
-  CPOS:
+CPOS:
     foreach my $cpos ( @{ $candidates->[$query_node] } ) {
 
         # store corpus position for current query_node, remove it from
@@ -341,6 +350,7 @@ sub get_corpus_attributes {
     $s_attributes{"sentence"}      = $corpus_handle->attribute( "s",             "s" );
     $s_attributes{"s_id"}          = $corpus_handle->attribute( "s_id",          "s" );
     $s_attributes{"s_original_id"} = $corpus_handle->attribute( "s_original_id", "s" );
+    $s_attributes{"s_ignore"}      = $corpus_handle->attribute( "s_ignore",      "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
