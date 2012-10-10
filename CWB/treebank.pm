@@ -291,7 +291,7 @@ sub match {
             my $rel = $query_incoming_rels[$i];
             next unless ( defined $rel );
             foreach my $indep (@indeps) {
-                if ( $indep =~ m/^ (?<relation>$rel) [(] (?<offset>-?\d+) (?:&apos;)* ,/xms ) {
+                if ( $indep =~ m/^ (?<relation>$rel) [(] (?<offset>-?\d+) (?:')* ,/xms ) {
                     my $offset     = $LAST_PAREN_MATCH{"offset"};
                     my $start_cpos = $cpos + $offset;
                     push @{ $corpus_candidates[$i] }, $start_cpos;
@@ -306,7 +306,7 @@ sub match {
             my $rel = $query_outgoing_rels[$i];
             next unless ( defined $rel );
             foreach my $outdep (@outdeps) {
-                if ( $outdep =~ m/^ (?<relation>$rel) [(]0 (?:&apos;)* , (?<offset>-?\d+) (?:&apos;)* [)] $/xms ) {
+                if ( $outdep =~ m/^ (?<relation>$rel) [(]0 (?:')* , (?<offset>-?\d+) (?:')* [)] $/xms ) {
                     my $offset     = $LAST_PAREN_MATCH{"offset"};
                     my $start_cpos = $cpos + $offset;
                     push @{ $corpus_candidates[$i] }, $start_cpos;
