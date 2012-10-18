@@ -114,6 +114,18 @@ sub transform_output {
             }
         );
     }
+    elsif ( $querymode eq "corpus-position" ) {
+        return encode_json(
+            {   "s_start" => $start,
+                "s_end"   => $end,
+                "tokens"  => [
+                    map {
+                        [ map { $_ - $start } @{$_} ]
+                        } @{$result}
+                ]
+            }
+        );
+    }
 }
 
 sub check_frequencies {

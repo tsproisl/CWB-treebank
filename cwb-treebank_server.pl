@@ -172,7 +172,7 @@ sub handle_connection {
         }
 
         # Switch mode
-        if ( $queryref =~ /^mode[ ](collo-word|collo-lemma|sentence|collo)$/xms ) {
+        if ( $queryref =~ /^mode[ ](collo-word|collo-lemma|sentence|collo|corpus-position)$/xms ) {
             $querymode = $1;
             $querymode = "collo-word" if ( $querymode eq "collo" );
             log_message("Switched query mode to '$querymode'");
