@@ -30,7 +30,7 @@ sub match_graph {
     $local_queryref =~ s/"[.][*+?]"//gxms;
     if ( $local_queryref =~ m/^[][}{, ]*$/xms ) {
         print {$cache_handle} $json->encode( [ q{}, [] ] ) . "\n" or croak "Can't print to cache: $OS_ERROR";
-        return;
+        return 0, 0, 0;
     }
 
     my $t0 = [ Time::HiRes::gettimeofday() ];

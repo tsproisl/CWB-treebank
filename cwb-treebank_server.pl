@@ -166,7 +166,7 @@ sub handle_connection {
                 log_message("Switched corpus to '$corpus'");
             }
             else {
-                log_message("Unknown corpus '$corpus'");
+                log_message("Unknown corpus '$1'");
             }
             next;
         }
