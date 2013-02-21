@@ -9,25 +9,25 @@
 # Description:       Start the CWB-Treebank Server
 ### END INIT INFO
 
-# --------- CONFIGURATION ---------
+# Read configuration variable file if it is present
+[ -r /etc/default/cwb-treebank ] && . /etc/default/cwb-treebank
 
-CWB_DIR=/var/treebank.info/cwb-treebank
-
-# ----- END OF CONFIGURATION ------
+# CWB-treebank works with deeply nested data structures that might cause a
+# segfault on older perl versions (a stack overflow caused by the recursive
+# implementation of the reference counting scheme). Workaround: Increase the
+# stack size.
+ulimit -s unlimited
 
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 PERL5LIB=$CWB_DIR
 NAME=cwb-treebank
 DAEMON=${CWB_DIR}/${NAME}_server.pl
 #DAEMON_ARGS="--nofork"
-PIDFILE=/${CWB_DIR}/$NAME.pid
+PIDFILE=${CWB_DIR}/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
 # Exit if the package is not installed
 [ -x "$DAEMON" ] || exit 0
-
-# Read configuration variable file if it is present
-[ -r /etc/default/$NAME ] && . /etc/default/$NAME
 
 # Load the VERBOSE setting and other rcS variables
 . /lib/init/vars.sh
