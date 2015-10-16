@@ -96,7 +96,7 @@ sub transform_output {
     if ( $querymode eq "collo-word" ) {
 	my $forms = {};
 	foreach my $position (@positions) {
-	    $forms->{$position} = $p_attributes->{"word"}->cpos2str($position);
+	    $forms->{$position - $start} = $p_attributes->{"word"}->cpos2str($position);
 	}
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
@@ -113,7 +113,7 @@ sub transform_output {
     elsif ( $querymode eq "collo-lemma" ) {
 	my $forms = {};
 	foreach my $position (@positions) {
-	    $forms->{$position} = $p_attributes->{"lemma"}->cpos2str($position);
+	    $forms->{$position - $start} = $p_attributes->{"lemma"}->cpos2str($position);
 	}
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
