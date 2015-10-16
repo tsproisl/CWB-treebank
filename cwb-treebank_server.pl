@@ -194,7 +194,8 @@ sub handle_connection {
 
 	# Perform frequency query
 	if ( $querymode eq "frequency" and $queryref =~ /^ [[] [{] [^:]+ : [^:]+ [}] []] $/xms ) {
-            $t0 = [ Time::HiRes::gettimeofday() ];
+	    my ($t0, $t1);
+	    $t0 = [ Time::HiRes::gettimeofday() ];
 	    my $frequency = CWB::treebank::get_frequency( $cqp, $corpus_handle, $corpus, $queryref )
 	    print {$output} $frequency . "\n" or croak "Can't print to socket: $OS_ERROR";
 	    print {$output} "finito\n" or croak "Can't print to socket: $OS_ERROR";
