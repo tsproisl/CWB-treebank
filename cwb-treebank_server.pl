@@ -172,7 +172,7 @@ sub handle_connection {
         }
 
         # Switch mode
-        if ( $queryref =~ /^mode[ ](collo-word|collo-lemma|sentence|collo|corpus-position)$/xms ) {
+        if ( $queryref =~ /^mode[ ](collo-word|collo-lemma|sentence|collo|corpus-position|frequency)$/xms ) {
             $querymode = $1;
             $querymode = "collo-word" if ( $querymode eq "collo" );
             log_message("Switched query mode to '$querymode'");
@@ -191,6 +191,16 @@ sub handle_connection {
             }
             next;
         }
+
+	# Perform frequency query
+	if ( $querymode eq "frequency" and $queryref =~ /^ [[] [{] [^:]+ : [^:]+ [}] []] $/xms ) {
+            $t0 = [ Time::HiRes::gettimeofday() ];
+	    my $frequency = CWB::treebank::get_frequency( $cqp, $corpus_handle, $corpus, $queryref )
+	    print {$output} $frequency . "\n" or croak "Can't print to socket: $OS_ERROR";
+	    print {$output} "finito\n" or croak "Can't print to socket: $OS_ERROR";
+	    $t1 = [ Time::HiRes::gettimeofday() ];
+            log_message( sprintf "answered %s in %.3fs (%d)", $queryid, Time::HiRes::tv_interval( $t0, $t1 ), $frequency );
+	}
 
         # Perform query
         if ( $queryref =~ /^ [[] [[] [{] .* [}] []] []] $/xms ) {

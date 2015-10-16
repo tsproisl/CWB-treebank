@@ -70,32 +70,58 @@ sub match_graph {
     return Time::HiRes::tv_interval( $t0, $t1 ), Time::HiRes::tv_interval( $t1, $t2 ), Time::HiRes::tv_interval( $t2, $t3 );
 }
 
+sub get_frequency {
+    my ( $cqp, $corpus_handle, $corpus, $queryref ) = @_;
+    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
+    my $frequency = 0;
+    my $query = decode_json($queryref);
+    my $attribute = (keys %{$query->[0]})[0];
+    my @values = split /[|]/xms, (values %{$query->[0]})[0];
+    for my $value (@values) {
+	my $value_id = $p_attributes->{$attribute}->str2id($value);
+	my $value_freq = $p_attributes->{$attribute}->id2freq($value_id);
+	$frequency += $value_freq;
+    }
+    return $frequency;
+}
+
 sub transform_output {
     my ( $s_attributes, $p_attributes, $querymode, $sid, $result ) = @_;
     if ( $sid eq q{} and @{$result} == 0 ) {
         return encode_json( {} );
     }
     my ( $start, $end ) = $s_attributes->{"s_id"}->struc2cpos($sid);
+    my @positions = uniq(map { @{$_} } @{$result});
 
     if ( $querymode eq "collo-word" ) {
+	my $forms = {};
+	foreach my $position (@positions) {
+	    $forms->{$position} = $p_attributes->{"word"}->cpos2str($position);
+	}
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
                 "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "forms"         => $forms,
                 "tokens"        => [
                     map {
-                        [ map { $p_attributes->{"word"}->cpos2str($_) } @{$_} ]
+                        [ map { $_ - $start } @{$_} ]
                         } @{$result}
                 ]
             }
         );
     }
     elsif ( $querymode eq "collo-lemma" ) {
+	my $forms = {};
+	foreach my $position (@positions) {
+	    $forms->{$position} = $p_attributes->{"lemma"}->cpos2str($position);
+	}
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
                 "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "forms"         => $forms,
                 "tokens"        => [
                     map {
-                        [ map { $p_attributes->{"lemma"}->cpos2str($_) } @{$_} ]
+                        [ map { $_ - $start } @{$_} ]
                         } @{$result}
                 ]
             }
