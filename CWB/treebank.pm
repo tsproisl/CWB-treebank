@@ -75,12 +75,18 @@ sub get_frequency {
     my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
     my $frequency = 0;
     my $query = decode_json($queryref);
-    my $attribute = (keys %{$query->[0]})[0];
-    my @values = split /[|]/xms, (values %{$query->[0]})[0];
-    for my $value (@values) {
-	my $value_id = $p_attributes->{$attribute}->str2id($value);
-	my $value_freq = $p_attributes->{$attribute}->id2freq($value_id);
-	$frequency += $value_freq;
+    my @attributes = keys %{$query->[0]};
+    if (scalar @attributes == 0) {
+	$frequency = $p_attributes->{"word"}->max_cpos;
+    }
+    elsif (scalar @attributes == 1) {
+	my $attribute = $attributes[0];
+	my @values = split /[|]/xms, (values %{$query->[0]})[0];
+	for my $value (@values) {
+	    my $value_id = $p_attributes->{$attribute}->str2id($value);
+	    my $value_freq = $p_attributes->{$attribute}->id2freq($value_id);
+	    $frequency += $value_freq;
+	}
     }
     return $frequency;
 }
