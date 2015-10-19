@@ -73,19 +73,25 @@ sub match_graph {
 sub get_frequency {
     my ( $cqp, $corpus_handle, $corpus, $queryref ) = @_;
     my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
+    my $corpus_size = $p_attributes->{"word"}->max_cpos;
     my $frequency = 0;
     my $query = decode_json($queryref);
-    my @attributes = keys %{$query->[0]};
+    my @attributes = grep { /^(not_)?(word|pos|lemma|wc)$/ } keys %{$query->[0]};
     if (scalar @attributes == 0) {
-	$frequency = $p_attributes->{"word"}->max_cpos;
+	$frequency = $corpus_size;
     }
     elsif (scalar @attributes == 1) {
-	my $attribute = $attributes[0];
-	my @values = split /[|]/xms, (values %{$query->[0]})[0];
+	$attributes[0] =~ /^(not_)?(word|pos|lemma|wc)$/;
+	my $negated = $1 ? 1 : 0;
+	my $attribute = $2;
+	my @values = split /[|]/xms, $query->[0]->{$attributes[0]};
 	for my $value (@values) {
 	    my $value_id = $p_attributes->{$attribute}->str2id($value);
 	    my $value_freq = $p_attributes->{$attribute}->id2freq($value_id);
 	    $frequency += $value_freq;
+	}
+	if ($negated) {
+	    $frequency = $corpus_size - $frequency;
 	}
     }
     return $frequency;
