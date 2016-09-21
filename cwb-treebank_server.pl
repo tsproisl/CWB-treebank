@@ -316,7 +316,7 @@ END_TRIGGER
 
 sub kill_child {
     my ($child_pid) = @_;
-    sleep 300;    # timeout
+    sleep 1500;    # timeout
     if ( defined $child_processes{$child_pid} ) {
         log_message("Sending SIGTERM to $child_pid");
         kill SIGTERM, $child_pid;
