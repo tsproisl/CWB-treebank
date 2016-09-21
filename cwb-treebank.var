@@ -1,3 +1,4 @@
 ## Defaults for cwb-treebank
 
-CWB_DIR=/var/treebank.info/cwb-treebank
+CWB_DIR=/p420i/treebank.info/cwb-treebank
+export PERL5LIB=$CWB_DIR:/cip/usr/share/perl/5.14.2/:/cip/usr/lib/perl/5.14.2/:$PERL5LIB

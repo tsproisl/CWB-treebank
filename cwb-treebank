@@ -19,7 +19,7 @@
 ulimit -s unlimited
 
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
-PERL5LIB=$CWB_DIR
+#PERL5LIB=$CWB_DIR
 NAME=cwb-treebank
 DAEMON=${CWB_DIR}/${NAME}_server.pl
 #DAEMON_ARGS="--nofork"
