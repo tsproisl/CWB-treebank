@@ -30,7 +30,7 @@ use CWB::treebank;
 # read config
 my %config = do "cwb-treebank_server.cfg";
 
-POSIX::setuid( $config{"uid"} );
+# POSIX::setuid( $config{"uid"} );
 
 # fork once, and let the parent exit
 {
