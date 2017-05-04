@@ -26,7 +26,7 @@ sub match_graph {
 
     # cancel if there are no restrictions
     my $local_queryref = $queryref;
-    $local_queryref =~ s/"(not_)?(relation|word|pos|lemma|wc|indep|outdep)"://gxms;
+    $local_queryref =~ s/"(not_)?(relation|word|lower|pos|lemma|wc|indep|outdep)"://gxms;
     $local_queryref =~ s/"[.][*+?]"//gxms;
     if ( $local_queryref =~ m/^[][}{, ]*$/xms ) {
         print {$cache_handle} $json->encode( [ q{}, [] ] ) . "\n" or croak "Can't print to cache: $OS_ERROR";
@@ -76,12 +76,12 @@ sub get_frequency {
     my $corpus_size = $p_attributes->{"word"}->max_cpos;
     my $frequency = 0;
     my $query = decode_json($queryref);
-    my @attributes = grep { /^(not_)?(word|pos|lemma|wc)$/ } keys %{$query->[0]};
+    my @attributes = grep { /^(not_)?(word|lower|pos|lemma|wc)$/ } keys %{$query->[0]};
     if (scalar @attributes == 0) {
 	$frequency = $corpus_size;
     }
     elsif (scalar @attributes == 1) {
-	$attributes[0] =~ /^(not_)?(word|pos|lemma|wc)$/;
+	$attributes[0] =~ /^(not_)?(word|lower|pos|lemma|wc)$/;
 	my $negated = $1 ? 1 : 0;
 	my $attribute = $2;
 	my @values = split /[|]/xms, $query->[0]->{$attributes[0]};
@@ -97,6 +97,20 @@ sub get_frequency {
     return $frequency;
 }
 
+sub get_multiple_frequencies {
+    my ( $cqp, $corpus_handle, $corpus, $attribute, $queryref ) = @_;
+    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
+    my %frequencies;
+    my $query = decode_json($queryref);
+    my $nr_of_items = scalar @$query;
+    for my $item (@$query) {
+	my $item_id = $p_attributes->{$attribute}->str2id($item);
+	my $item_freq = $p_attributes->{$attribute}->id2freq($item_id);
+	$frequencies{$item} = $item_freq;
+    }
+    return encode_json( \%frequencies ), $nr_of_items;
+}
+
 sub transform_output {
     my ( $s_attributes, $p_attributes, $querymode, $sid, $result ) = @_;
     if ( $sid eq q{} and @{$result} == 0 ) {
@@ -105,27 +119,11 @@ sub transform_output {
     my ( $start, $end ) = $s_attributes->{"s_id"}->struc2cpos($sid);
     my @positions = uniq(map { @{$_} } @{$result});
 
-    if ( $querymode eq "collo-word" ) {
+    if ( $querymode =~ /^collo-(word|lower|lemma)$/xms ) {
+	my $attribute = $1;
 	my $forms = {};
 	foreach my $position (@positions) {
-	    $forms->{$position - $start} = $p_attributes->{"word"}->cpos2str($position);
-	}
-        return encode_json(
-            {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
-                "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
-                "forms"         => $forms,
-                "tokens"        => [
-                    map {
-                        [ map { $_ - $start } @{$_} ]
-                        } @{$result}
-                ]
-            }
-        );
-    }
-    elsif ( $querymode eq "collo-lemma" ) {
-	my $forms = {};
-	foreach my $position (@positions) {
-	    $forms->{$position - $start} = $p_attributes->{"lemma"}->cpos2str($position);
+	    $forms->{$position - $start} = $p_attributes->{$attribute}->cpos2str($position);
 	}
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
@@ -403,6 +401,7 @@ sub get_corpus_attributes {
     $s_attributes{"s_ignore"}      = $corpus_handle->attribute( "s_ignore",      "s" );
     my %p_attributes;
     $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
+    $p_attributes{"lower"}    = $corpus_handle->attribute( "lower",    "p" );
     $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
     $p_attributes{"lemma"}  = $corpus_handle->attribute( "lemma",  "p" );
     $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );

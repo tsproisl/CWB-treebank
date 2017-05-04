@@ -155,7 +155,12 @@ sub handle_connection {
         $queryid++;
         chomp $queryref;
         $queryref =~ s/\s*$//xms;
-        log_message( "[$queryid] " . $queryref );
+	if ( length $queryref > 240 ) {
+	    log_message( "[$queryid] " . substr( $queryref, 0, 115 ) . " [...] " . substr( $queryref, -115));
+	}
+	else {
+	    log_message( "[$queryid] " . $queryref );
+	}
 
         # Switch corpus
         if ( $queryref =~ /^corpus[ ]([\p{IsLu}_\d]+)$/xms ) {
@@ -172,7 +177,7 @@ sub handle_connection {
         }
 
         # Switch mode
-        if ( $queryref =~ /^mode[ ](collo-word|collo-lemma|sentence|collo|corpus-position|frequency)$/xms ) {
+        if ( $queryref =~ /^mode[ ](collo-(?:word|lower|lemma)|sentence|collo|corpus-position|frequency|frequencies-(?:word|lower|lemma))$/xms ) {
             $querymode = $1;
             $querymode = "collo-word" if ( $querymode eq "collo" );
             log_message("Switched query mode to '$querymode'");
@@ -201,6 +206,20 @@ sub handle_connection {
 	    print {$output} "finito\n" or croak "Can't print to socket: $OS_ERROR";
 	    $t1 = [ Time::HiRes::gettimeofday() ];
             log_message( sprintf "answered %s in %.3fs (%d)", $queryid, Time::HiRes::tv_interval( $t0, $t1 ), $frequency );
+            next;
+	}
+
+	# Perform multiple frequency queries
+	if ( $querymode =~ /^frequencies-(?:word|lower|lemma)$/xms and $queryref =~ /^ [[] " .* " []] $/xms ) {
+	    my ($t0, $t1);
+	    $t0 = [ Time::HiRes::gettimeofday() ];
+	    $querymode =~ /^frequencies-(word|lower|lemma)$/xms;
+	    my $p_attribute = $1;
+	    my ( $frequencies, $nr_of_items ) = CWB::treebank::get_multiple_frequencies( $cqp, $corpus_handle, $corpus, $p_attribute, $queryref );
+	    print {$output} $frequencies . "\n" or croak "Can't print to socket: $OS_ERROR";
+	    print {$output} "finito\n" or croak "Can't print to socket: $OS_ERROR";
+	    $t1 = [ Time::HiRes::gettimeofday() ];
+            log_message( sprintf "answered %s in %.3fs (%d items)", $queryid, Time::HiRes::tv_interval( $t0, $t1 ), $nr_of_items );
             next;
 	}
 
