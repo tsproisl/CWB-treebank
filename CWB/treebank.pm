@@ -395,18 +395,16 @@ CPOS:
 sub get_corpus_attributes {
     my ($corpus_handle) = @_;
     my %s_attributes;
-    $s_attributes{"sentence"}      = $corpus_handle->attribute( "s",             "s" );
-    $s_attributes{"s_id"}          = $corpus_handle->attribute( "s_id",          "s" );
-    $s_attributes{"s_original_id"} = $corpus_handle->attribute( "s_original_id", "s" );
-    $s_attributes{"s_ignore"}      = $corpus_handle->attribute( "s_ignore",      "s" );
+    $s_attributes{"sentence"} = $corpus_handle->attribute( "s", "s" );
+    my @s_attribute_list = qw( s_id s_original_id s_ignore );
+    foreach my $attribute (@s_attribute_list) {
+        $s_attributes{$attribute} = $corpus_handle->attribute( $attribute, "s" );
+    }
     my %p_attributes;
-    $p_attributes{"word"}   = $corpus_handle->attribute( "word",   "p" );
-    $p_attributes{"lower"}    = $corpus_handle->attribute( "lower",    "p" );
-    $p_attributes{"pos"}    = $corpus_handle->attribute( "pos",    "p" );
-    $p_attributes{"lemma"}  = $corpus_handle->attribute( "lemma",  "p" );
-    $p_attributes{"wc"}     = $corpus_handle->attribute( "wc",     "p" );
-    $p_attributes{"indep"}  = $corpus_handle->attribute( "indep",  "p" );
-    $p_attributes{"outdep"} = $corpus_handle->attribute( "outdep", "p" );
+    my @p_attribute_list = qw( word lower pos lemma wc indep outdep );
+    foreach my $attribute (@p_attribute_list) {
+        $p_attributes{$attribute} = $corpus_handle->attribute( $attribute, "p" );
+    }
     return ( \%s_attributes, \%p_attributes );
 }
 
