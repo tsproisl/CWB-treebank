@@ -7,7 +7,7 @@ use threads::shared;
 
 # roadmap
 # 1.0: refactoring of handle_connection
-use version; our $VERSION = qv('0.9.0');
+use version; our $VERSION = qv('0.10.0');
 
 use Carp;
 use English qw( -no_match_vars );
@@ -126,8 +126,8 @@ sub handle_connection {
     my $socket = shift;
     my $output = shift || $socket;
     my $json   = JSON->new();
-    my ( $cqp, %corpus_handles, $dbh );
-    local $SIG{INT} = local $SIG{TERM} = local $SIG{HUP} = sub { log_message('Caught signal (2)'); $socket->close(); undef $cqp; undef $corpus_handles{$_} foreach ( keys %corpus_handles ); undef $dbh; exit; };
+    my ( $cqp, %corpus_handles, %registry_handles, $dbh );
+    local $SIG{INT} = local $SIG{TERM} = local $SIG{HUP} = sub { log_message('Caught signal (2)'); $socket->close(); undef $cqp; undef $corpus_handles{$_} foreach ( keys %corpus_handles ); undef $registry_handles{$_} foreach ( keys %registry_handles ); undef $dbh; exit; };
     $cqp = CWB::CQP->new();
     $cqp->set_error_handler('die');
     $cqp->exec( q{set Registry '} . $config{'registry'} . q{'} );
@@ -141,9 +141,11 @@ sub handle_connection {
 
     foreach my $corpus ( @{ $config{"corpora"} } ) {
         $corpus_handles{$corpus} = CWB::CL::Corpus->new($corpus);
+	$registry_handles{$corpus} = CWB::RegistryFile->new($corpus);
     }
     my $corpus           = $config{"default_corpus"};
     my $corpus_handle    = $corpus_handles{$corpus};
+    my $registry_handle  = $registry_handles{$corpus};
     my $querymode        = "collo-word";
     my $case_sensitivity = 0;
     my $queryid          = 0;
@@ -165,8 +167,9 @@ sub handle_connection {
         # Switch corpus
         if ( $queryref =~ /^corpus[ ]([\p{IsLu}_\d]+)$/xms ) {
             if ( defined $corpus_handles{$1} ) {
-                $corpus        = $1;
-                $corpus_handle = $corpus_handles{$corpus};
+                $corpus          = $1;
+                $corpus_handle   = $corpus_handles{$corpus};
+                $registry_handle = $registry_handles{$corpus};
                 $cqp->exec($corpus);
                 log_message("Switched corpus to '$corpus'");
             }
@@ -201,7 +204,7 @@ sub handle_connection {
 	if ( $querymode eq "frequency" and $queryref =~ /^ [[] [{] .* [}] []] $/xms ) {
 	    my ($t0, $t1);
 	    $t0 = [ Time::HiRes::gettimeofday() ];
-	    my $frequency = CWB::treebank::get_frequency( $cqp, $corpus_handle, $corpus, $queryref );
+	    my $frequency = CWB::treebank::get_frequency( $cqp, $corpus_handle, $registry_handle, $corpus, $queryref );
 	    print {$output} $frequency . "\n" or croak "Can't print to socket: $OS_ERROR";
 	    print {$output} "finito\n" or croak "Can't print to socket: $OS_ERROR";
 	    $t1 = [ Time::HiRes::gettimeofday() ];
@@ -215,7 +218,7 @@ sub handle_connection {
 	    $t0 = [ Time::HiRes::gettimeofday() ];
 	    $querymode =~ /^frequencies-(word|lower|lemma)$/xms;
 	    my $p_attribute = $1;
-	    my ( $frequencies, $nr_of_items ) = CWB::treebank::get_multiple_frequencies( $cqp, $corpus_handle, $corpus, $p_attribute, $queryref );
+	    my ( $frequencies, $nr_of_items ) = CWB::treebank::get_multiple_frequencies( $cqp, $corpus_handle, $registry_handle, $corpus, $p_attribute, $queryref );
 	    print {$output} $frequencies . "\n" or croak "Can't print to socket: $OS_ERROR";
 	    print {$output} "finito\n" or croak "Can't print to socket: $OS_ERROR";
 	    $t1 = [ Time::HiRes::gettimeofday() ];
@@ -248,7 +251,7 @@ sub handle_connection {
                 $t1 = [ Time::HiRes::gettimeofday() ];
 
                 #&CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
-                $query_times = sprintf " (%s + %s + %s)", CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
+                $query_times = sprintf " (%s + %s + %s)", CWB::treebank::match_graph( $output, $cqp, $corpus_handle, $registry_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle );
                 flock $cache_handle, LOCK_UN;
                 close $cache_handle or croak "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $OS_ERROR";
             }
@@ -262,7 +265,7 @@ sub handle_connection {
                 $t1 = [ Time::HiRes::gettimeofday() ];
                 open $cache_handle, "<", File::Spec->catfile( $config{"cache_dir"}, $qid ) or croak "Can't open " . File::Spec->catfile( $config{"cache_dir"}, $qid ) . ": $OS_ERROR";
                 flock $cache_handle, LOCK_SH;
-                my ( $s_attributes, $p_attributes ) = CWB::treebank::get_corpus_attributes($corpus_handle);
+                my ( $s_attributes, $p_attributes ) = CWB::treebank::get_corpus_attributes($corpus_handle, $registry_handle);
 
                 while ( my $line = <$cache_handle> ) {
                     chomp $line;
@@ -285,7 +288,8 @@ sub handle_connection {
     }
 
     undef $cqp;
-    undef $corpus_handles{$_} foreach ( keys %corpus_handles );
+    undef $corpus_handles{$_}   foreach ( keys %corpus_handles );
+    undef $registry_handles{$_} foreach ( keys %registry_handles );
     undef $dbh;
     return;
 }

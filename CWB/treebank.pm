@@ -6,7 +6,7 @@ use strict;
 # roadmap
 # 1.0: heuristics for frequencies of query nodes
 # 2.0: restrictions on order of nodes
-use version; our $VERSION = qv('0.9.0');
+use version; our $VERSION = qv('0.10.0');
 
 use Carp;
 use English qw( -no_match_vars );
@@ -18,11 +18,11 @@ use Time::HiRes;
 use JSON;
 
 sub match_graph {
-    my ( $output, $cqp, $corpus_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
+    my ( $output, $cqp, $corpus_handle, $registry_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
     my $json  = JSON->new();
     my $query = decode_json($queryref);
     $cqp->exec($corpus);
-    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
+    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle, $registry_handle);
 
     # cancel if there are no restrictions
     my $local_queryref = $queryref;
@@ -71,8 +71,8 @@ sub match_graph {
 }
 
 sub get_frequency {
-    my ( $cqp, $corpus_handle, $corpus, $queryref ) = @_;
-    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
+    my ( $cqp, $corpus_handle, $registry_handle, $corpus, $queryref ) = @_;
+    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle, $registry_handle);
     my $corpus_size = $p_attributes->{"word"}->max_cpos;
     my $frequency = 0;
     my $query = decode_json($queryref);
@@ -98,8 +98,8 @@ sub get_frequency {
 }
 
 sub get_multiple_frequencies {
-    my ( $cqp, $corpus_handle, $corpus, $attribute, $queryref ) = @_;
-    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle);
+    my ( $cqp, $corpus_handle, $registry_handle, $corpus, $attribute, $queryref ) = @_;
+    my ( $s_attributes, $p_attributes ) = get_corpus_attributes($corpus_handle, $registry_handle);
     my %frequencies;
     my $query = decode_json($queryref);
     my $nr_of_items = scalar @$query;
@@ -393,7 +393,7 @@ CPOS:
 }
 
 sub get_corpus_attributes {
-    my ($corpus_handle) = @_;
+    my ($corpus_handle, $registry_handle) = @_;
     my %s_attributes;
     $s_attributes{"sentence"} = $corpus_handle->attribute( "s", "s" );
     my @s_attribute_list = qw( s_id s_original_id s_ignore );
@@ -401,7 +401,7 @@ sub get_corpus_attributes {
         $s_attributes{$attribute} = $corpus_handle->attribute( $attribute, "s" );
     }
     my %p_attributes;
-    my @p_attribute_list = qw( word lower pos lemma wc indep outdep );
+    my @p_attribute_list = $reg->list_attributes("p");
     foreach my $attribute (@p_attribute_list) {
         $p_attributes{$attribute} = $corpus_handle->attribute( $attribute, "p" );
     }
