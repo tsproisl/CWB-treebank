@@ -18,6 +18,7 @@ use IO::Socket;
 use POSIX qw(:sys_wait_h SIGTERM SIGKILL);
 use Time::HiRes;
 
+use CWB;
 use CWB::CQP;
 use CWB::CL;
 use DBI;
@@ -26,6 +27,8 @@ use JSON;
 use FindBin;
 use lib $FindBin::Bin;
 use CWB::treebank;
+
+use Data::Dumper;
 
 # read config
 my %config = do "cwb-treebank_server.cfg";
@@ -131,8 +134,9 @@ sub handle_connection {
     $cqp = CWB::CQP->new();
     $cqp->set_error_handler('die');
     $cqp->exec( q{set Registry '} . $config{'registry'} . q{'} );
-    $CWB::CL::Registry = $config{'registry'};
-    $dbh               = connect_to_cache_db();
+    $CWB::CL::Registry    = $config{'registry'};
+    $CWB::DefaultRegistry = $config{'registry'};
+    $dbh                  = connect_to_cache_db();
 
     # prepare SQL statements
     my $select_qid   = $dbh->prepare(qq{SELECT qid FROM queries WHERE corpus = ? AND casesensitivity = ? AND query = ?});

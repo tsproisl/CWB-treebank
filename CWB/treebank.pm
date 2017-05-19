@@ -10,12 +10,14 @@ use version; our $VERSION = qv('0.10.0');
 
 use Carp;
 use English qw( -no_match_vars );
-use List::Util qw(sum);
+use List::Util qw( min sum );
 use List::MoreUtils qw( uniq );
 use Storable qw( dclone );
 use Time::HiRes;
 
 use JSON;
+
+use Data::Dumper;
 
 sub match_graph {
     my ( $output, $cqp, $corpus_handle, $registry_handle, $corpus, $querymode, $queryref, $case_sensitivity, $cache_handle ) = @_;
@@ -43,7 +45,7 @@ sub match_graph {
     # execute query
     my %ids;
     my @corpus_order;
-    execute_query( $cqp, $s_attributes->{"s_id"}, $s_attributes->{"s_ignore"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies );
+    execute_query( $cqp, $s_attributes->{"s_id"}, $s_attributes->{"s_ignore"}, $query, \%ids, \@corpus_order, $case_sensitivity, \%frequencies, $p_attributes );
 
     my $t2 = [ Time::HiRes::gettimeofday() ];
 
@@ -127,7 +129,7 @@ sub transform_output {
 	}
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
-                "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "s_text" => $s_attributes->{"s_text"}->struc2str($sid),
                 "forms"         => $forms,
                 "tokens"        => [
                     map {
@@ -140,7 +142,7 @@ sub transform_output {
     elsif ( $querymode eq "sentence" ) {
         return encode_json(
             {   "s_id"          => $s_attributes->{"s_id"}->struc2str($sid),
-                "s_original_id" => $s_attributes->{"s_original_id"}->struc2str($sid),
+                "s_text" => $s_attributes->{"s_text"}->struc2str($sid),
                 "sentence"      => [ $p_attributes->{"word"}->cpos2str( $start .. $end ) ],
                 "tokens"        => [
                     map {
@@ -167,31 +169,41 @@ sub transform_output {
 sub check_frequencies {
     my ( $cqp, $query, $case_sensitivity, $p_attributes ) = @_;
     my %frequencies;
+    my $corpus_size = $p_attributes->{"word"}->max_cpos;
     foreach my $i ( 0 .. $#{$query} ) {
         my $token = $query->[$i]->[$i];
 
-        # Note: Try out adding indeps and outdeps information
-        my $querystring = join ' & ', map { map_token_restrictions( $_, $token->{$_}, $case_sensitivity ) } keys %{$token};
-
-        #my $querystring = &build_query($query, $i, $case_sensitivity); # inefficient
-        if ($querystring) {
-            $cqp->exec("A = [$querystring]");
-            ( $frequencies{$i} ) = $cqp->exec("size A");
+        # for key in token:
+        # if in p_attributes, then sum map {id2freq} regex2id (size - result if negated)
+        my $frequency = $corpus_size;
+        my @freqs;
+        foreach my $att ( grep { $p_attributes->{$_} } keys %{$token} ) {
+            my @ids = $p_attributes->{$att}->regex2id( $token->{$att} );
+            push @freqs, sum( map { $p_attributes->{$att}->id2freq($_) } @ids );
+        }
+        if ( scalar @freqs > 0 ) {
+            $frequency = min @freqs;
         }
         else {
-            $frequencies{$i} = $p_attributes->{"word"}->max_cpos;
+            # Note: Try out adding indeps and outdeps information
+            my $querystring = join ' & ', map { map_token_restrictions( $_, $token->{$_}, $case_sensitivity, $p_attributes ) } keys %{$token};
 
-            #die("It seems that the input graph is not connected. Is that right?\n");
+            #my $querystring = &build_query($query, $i, $case_sensitivity); # inefficient
+            if ($querystring) {
+                $cqp->exec("A = [$querystring]");
+                ($frequency) = $cqp->exec("size A");
+            }
         }
+        $frequencies{$i} = $frequency;
     }
     return %frequencies;
 }
 
 sub execute_query {
-    my ( $cqp, $s_id, $s_ignore, $query, $ids_ref, $corpus_order_ref, $case_sensitivity, $frequencies_ref ) = @_;
+    my ( $cqp, $s_id, $s_ignore, $query, $ids_ref, $corpus_order_ref, $case_sensitivity, $frequencies_ref, $p_attributes ) = @_;
     foreach my $i ( sort { $frequencies_ref->{$a} <=> $frequencies_ref->{$b} } keys %{$frequencies_ref} ) {
         @{$corpus_order_ref} = ();
-        my $querystring = build_query( $query, $i, $case_sensitivity );
+        my $querystring = build_query( $query, $i, $case_sensitivity, $p_attributes );
 
         # print $querystring, "\n";
         # my $t0 = [ Time::HiRes::gettimeofday() ];
@@ -215,19 +227,50 @@ sub execute_query {
     return;
 }
 
+sub get_outdep_attribute {
+    my ( $relation, $p_attributes ) = @_;
+    if ( $relation =~ m/^([^:]+)(?::.+)?$/xms ) {
+	my $outdep = "out_$1";
+        if ( $p_attributes->{$outdep} ) {
+            return $outdep;
+        }
+        else {
+            croak "Unknown outdep attribute: $relation, $outdep";
+        }
+    }
+    else {
+        croak "Cannot determine outdep attribute: $relation";
+    }
+}
+
+sub get_outdeps {
+    my ( $cpos, $p_attributes ) = @_;
+    my @outdeps;
+    foreach my $attribute ( keys %{$p_attributes} ) {
+        if ( substr( $attribute, 0, 4 ) eq "out_" ) {
+            my $outdeps = $p_attributes->{$attribute}->cpos2str($cpos);
+            $outdeps =~ s/^[|]//xms;
+            $outdeps =~ s/[|]$//xms;
+            push @outdeps, split( /[|]/xms, $outdeps );
+        }
+    }
+    return \@outdeps;
+}
+
 sub build_query {
-    my ( $query, $i, $case_sensitivity ) = @_;
+    my ( $query, $i, $case_sensitivity, $p_attributes ) = @_;
     my $token = $query->[$i]->[$i];
     my @querystring;
 
-    my $tokrestr = join ' & ', map { map_token_restrictions( $_, $token->{$_}, $case_sensitivity ) } keys %{$token};
+    my $tokrestr = join ' & ', map { map_token_restrictions( $_, $token->{$_}, $case_sensitivity, $p_attributes ) } keys %{$token};
     push @querystring, $tokrestr if ($tokrestr);
 
     my $indeps = join ' & ', map {
         '('
             . join(
             ' | ',              map { '(indep contains "' . $_ . '\(.*")' }
-                split /[|]/xms, $_
+                # split /[|]/xms, $_
+		@{$_}
             )
             . ')'
         }
@@ -239,13 +282,14 @@ sub build_query {
     my $outdeps = join ' & ', map {
         '('
             . join(
-            ' | ',              map { '(outdep contains "' . $_ . '\(.*")' }
-                split /[|]/xms, $_
+            ' | ',              map { '(' . get_outdep_attribute($_, $p_attributes) . ' contains "' . $_ . '\(.*")' }
+                # split /[|]/xms, $_
+		@{$_}
             )
             . ')'
         } grep {defined}
         map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} );
-    $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep {defined} map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} ) ) . ')' if ($outdeps);
+    # $outdeps .= ' & (ambiguity(outdep) >= ' . scalar( grep {defined} map { $query->[$i]->[$_]->{'relation'} } ( 0 .. $#{$query} ) ) . ')' if ($outdeps);
     push @querystring, $outdeps if ($outdeps);
 
     my $querystring = join ' & ', @querystring;
@@ -253,9 +297,12 @@ sub build_query {
 }
 
 sub map_token_restrictions {
-    my ( $key, $value, $case_sensitivity ) = @_;
-    if ( $key =~ m/^not_((?:in|out)dep)$/xms ) {
-        return join ' & ', map { '(' . $1 . ' not contains "' . $_ . '\(.*")' } @{$value};
+    my ( $key, $value, $case_sensitivity, $p_attributes ) = @_;
+    if ( $key eq "not_indep" ) {
+        return join ' & ', map { '(indep not contains "' . $_ . '\(.*")' } @{$value};
+    }
+    elsif ( $key eq "not_outdep" ) {
+        return join ' & ', map { '(' . get_outdep_attribute($_, $p_attributes) . ' not contains "' . $_ . '\(.*")' } @{$value};
     }
     elsif ( substr( $key, 0, 4 ) eq "not_" ) {
         $key = substr $key, 4;
@@ -299,8 +346,8 @@ sub match {
     # collect incoming dependency relations for query_node in query graph
     my ( $number_of_incoming_rels, @query_incoming_rels );
     foreach my $i ( 0 .. $#{$query} ) {
-        if ( $query->[$i]->[$query_node] ) {
-            $query_incoming_rels[$i] = $query->[$i]->[$query_node]->{"relation"};
+        if ( $query->[$i]->[$query_node]->{"relation"} ) {
+            $query_incoming_rels[$i] = join '|', @{$query->[$i]->[$query_node]->{"relation"}};
         }
     }
     $number_of_incoming_rels = grep {defined} @query_incoming_rels;
@@ -308,8 +355,8 @@ sub match {
     # collect outgoing dependency relations for query_node in query graph
     my ( $number_of_outgoing_rels, @query_outgoing_rels );
     foreach my $i ( 0 .. $#{$query} ) {
-        if ( $query->[$query_node]->[$i] ) {
-            $query_outgoing_rels[$i] = $query->[$query_node]->[$i]->{"relation"};
+        if ( $query->[$query_node]->[$i]->{"relation"} ) {
+            $query_outgoing_rels[$i] = join '|', @{$query->[$query_node]->[$i]->{"relation"}};
         }
     }
     $number_of_outgoing_rels = grep {defined} @query_outgoing_rels;
@@ -334,11 +381,7 @@ CPOS:
         next CPOS if ( @indeps < $number_of_incoming_rels );
 
         # collect outgoing dependency relations for corpus position
-        my ( $outdeps, @outdeps );
-        $outdeps = $p_attributes->{"outdep"}->cpos2str($cpos);
-        $outdeps =~ s/^[|]//xms;
-        $outdeps =~ s/[|]$//xms;
-        @outdeps = split /[|]/xms, $outdeps;
+        my @outdeps = @{ get_outdeps( $cpos, $p_attributes ) };
         next CPOS if ( @outdeps < $number_of_outgoing_rels );
 
         # collect corpus position of the start nodes of the incoming
@@ -393,15 +436,15 @@ CPOS:
 }
 
 sub get_corpus_attributes {
-    my ($corpus_handle, $registry_handle) = @_;
+    my ( $corpus_handle, $registry_handle ) = @_;
     my %s_attributes;
     $s_attributes{"sentence"} = $corpus_handle->attribute( "s", "s" );
-    my @s_attribute_list = qw( s_id s_original_id s_ignore );
+    my @s_attribute_list = qw( s_id s_text s_ignore );
     foreach my $attribute (@s_attribute_list) {
         $s_attributes{$attribute} = $corpus_handle->attribute( $attribute, "s" );
     }
     my %p_attributes;
-    my @p_attribute_list = $reg->list_attributes("p");
+    my @p_attribute_list = $registry_handle->list_attributes("p");
     foreach my $attribute (@p_attribute_list) {
         $p_attributes{$attribute} = $corpus_handle->attribute( $attribute, "p" );
     }
