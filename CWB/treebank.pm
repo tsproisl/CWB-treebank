@@ -179,7 +179,9 @@ sub check_frequencies {
         my @freqs;
         foreach my $att ( grep { $p_attributes->{$_} } keys %{$token} ) {
             my @ids = $p_attributes->{$att}->regex2id( $token->{$att} );
-            push @freqs, sum( map { $p_attributes->{$att}->id2freq($_) } @ids );
+            if ( scalar @ids > 0 ) {
+                push @freqs, sum( map { $p_attributes->{$att}->id2freq($_) } @ids );
+            }
         }
         if ( scalar @freqs > 0 ) {
             $frequency = min @freqs;
