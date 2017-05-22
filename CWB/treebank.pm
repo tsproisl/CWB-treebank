@@ -207,7 +207,7 @@ sub execute_query {
         @{$corpus_order_ref} = ();
         my $querystring = build_query( $query, $i, $case_sensitivity, $p_attributes );
 
-        # print $querystring, "\n";
+	# warn $querystring, "\n";
         # my $t0 = [ Time::HiRes::gettimeofday() ];
         $cqp->exec("[$querystring]");
         if ( ( $cqp->exec("size Last") )[0] > 0 ) {
